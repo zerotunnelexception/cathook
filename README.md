@@ -1,8 +1,6 @@
 # Cathook Training Software
 ![banner](https://user-images.githubusercontent.com/13179138/134817300-d4865695-af33-4e83-a017-5ec0d31ea0a1.png)
 
-[![CircleCI](https://circleci.com/gh/nullworks/cathook.svg?style=svg)](https://circleci.com/gh/nullworks/cathook)
-
 ## Risk of VAC detection
 
 The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned.
@@ -13,7 +11,6 @@ Cathook is a training software designed for Team Fortress 2 for Linux. Cathook i
 
 * Ignore Hoovy
 * Encrypted chat
-* Nullnexus Support (Find other Cathook users in-game automatically)
 * Sandvich aimbot
 * Chance to get manually VAC banned by Valve
 
@@ -29,19 +26,18 @@ and a lot of useful features, including
 * Automatic matchmaking
 * And many more features!
 
-[FULL LIST OF FEATURES HERE](https://github.com/nullworks/cathook/wiki/Feature-List-and-explanations)
+[FULL LIST OF FEATURES HERE (soon)](https://github.com/nullworks/cathook/wiki/Feature-List-and-explanations)
 
-# Installing, updating, attaching (injecting)
+# Installing, updating, attaching (injecting) (SOON
 
-[View our short guide to installing and using cathook](https://github.com/nullworks/cathook/wiki/Installing,-Attaching-And-General-Infos)
+[SOON View our short guide to installing and using cathook](https://github.com/nullworks/cathook/wiki/Installing,-Attaching-And-General-Infos)
 
 ## Community
-You can chat with other cathook users in [our official Telegram group](https://t.me/nullworks) and the [cathook announcements channel](https://t.me/cathook_cheat).
-If you don't have Telegram, you can chat with other cathook users in our official Matrix room, however, you will have to ask TotallyNotElite or BenCat07 for an invite to said room.
+ill make later 
 
 ## Reporting Issues
 
-If some things doesn't work as expected, please open issues on GitHub using [this page](https://github.com/nullworks/cathook/issues).
+If some things doesn't work as expected, please open issues on GitHub using [this page](https://github.com/mlemlody/cathook/issues).
 
 ## Contributing
 
