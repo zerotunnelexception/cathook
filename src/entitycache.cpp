@@ -8,62 +8,7 @@
 #include "common.hpp"
 #include <settings/Float.hpp>
 #include "soundcache.hpp"
-
-inline void CachedEntity::Update()
-{
-#ifndef PROXY_ENTITY
-    m_pEntity = g_IEntityList->GetClientEntity(idx);
-    if (!m_pEntity)
-        return;
-#endif
-    hitboxes.InvalidateCache();
-    m_bVisCheckComplete = false;
-}
-
-inline CachedEntity::CachedEntity(int idx) : m_IDX(idx), hitboxes(hitbox_cache::EntityHitboxCache{ idx })
-{
-#ifndef PROXY_ENTITY
-    m_pEntity = nullptr;
-#endif
-}
-
-inline CachedEntity::~CachedEntity()
-{
-    delete player_info;
-    player_info = nullptr;
-}
-
-bool CachedEntity::IsVisible()
-{
-    if (m_bVisCheckComplete)
-    {
-        return m_bAnyHitboxVisible;
-    }
-
-    auto hitbox = hitboxes.GetHitbox(std::max(0, (hitboxes.GetNumHitboxes() >> 1) - 1));
-    Vector result;
-    if (!hitbox)
-    {
-        result = m_vecOrigin();
-    }
-    else
-    {
-        result = hitbox->center;
-    }
-
-    // Just check a centered hitbox. This is mostly used for ESP anyway
-    if (IsEntityVectorVisible(this, result, true, MASK_SHOT_HULL, nullptr, true))
-    {
-        m_bAnyHitboxVisible = true;
-        m_bVisCheckComplete = true;
-        return true;
-    }
-
-    m_bAnyHitboxVisible = false;
-    m_bVisCheckComplete = true;
-
-    return false;
-}
+#include "enums.hpp"
 
 namespace entity_cache
 {
@@ -72,130 +17,246 @@ std::vector<CachedEntity *> valid_ents;
 std::vector<CachedEntity *> player_cache;
 int previous_max = 0;
 int previous_ent = 0;
+int max = 1;
+} // namespace entity_cache
 
-void Update()
+inline void CachedEntity::Update()
 {
-    max              = g_IEntityList->GetHighestEntityIndex();
-    int current_ents = g_IEntityList->NumberOfEntities(false);
-    valid_ents.clear();
-    player_cache.clear();
-
-    if (g_Settings.bInvalid)
+    try 
     {
-        return;
-    }
-
-    if (max >= MAX_ENTITIES)
-    {
-        max = MAX_ENTITIES - 1;
-    }
-
-    // pre-allocate memory
-    if (max > valid_ents.capacity())
-    {
-        valid_ents.reserve(max);
-    }
-
-    if (g_GlobalVars->maxClients > player_cache.capacity())
-    {
-        player_cache.reserve(g_GlobalVars->maxClients);
-    }
-
-    if (previous_max == max && previous_ent == current_ents)
-    {
-        for (auto &[key, val] : array)
+        #ifndef PROXY_ENTITY
+        m_pEntity = g_IEntityList->GetClientEntity(m_IDX);
+        if (!m_pEntity)
         {
-            val.Update();
-            auto internal_entity = val.InternalEntity();
-            if (internal_entity)
+            Reset();
+            return;
+        }
+        #endif
+
+        // Validate entity before doing anything
+        IClientEntity* ent = InternalEntity();
+        if (!ent || !ent->GetClientClass() || !ent->GetClientClass()->m_ClassID)
+        {
+            Reset();
+            return;
+        }
+
+        // Check if entity is dormant or dead
+        if (ent->IsDormant() || (m_Type() == ENTITY_PLAYER && !m_bAlivePlayer()))
+        {
+            Reset();
+            return;
+        }
+
+        hitboxes.InvalidateCache();
+        m_bVisCheckComplete = false;
+    }
+    catch (...)
+    {
+        Reset();
+    }
+}
+
+inline CachedEntity::CachedEntity(int idx) : m_IDX(idx), hitboxes(hitbox_cache::EntityHitboxCache{ idx })
+{
+    #ifndef PROXY_ENTITY
+    m_pEntity = nullptr;
+    #endif
+    player_info = nullptr;
+}
+
+inline CachedEntity::~CachedEntity()
+{
+    Reset();
+}
+
+bool CachedEntity::IsVisible()
+{
+    try
+    {
+        if (!InternalEntity() || InternalEntity()->IsDormant())
+            return false;
+
+        if (m_bVisCheckComplete)
+            return m_bAnyHitboxVisible;
+
+        Vector result;
+        auto hitbox = hitboxes.GetHitbox(0);  // Just check first hitbox for safety
+        
+        if (!hitbox)
+            result = m_vecOrigin();
+        else
+            result = hitbox->center;
+
+        if (IsEntityVectorVisible(this, result, true, MASK_SHOT_HULL, nullptr, true))
+        {
+            m_bAnyHitboxVisible = true;
+            m_bVisCheckComplete = true;
+            return true;
+        }
+
+        m_bAnyHitboxVisible = false;
+        m_bVisCheckComplete = true;
+        return false;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+void entity_cache::Update()
+{
+    try
+    {
+        if (g_Settings.bInvalid)
+            return;
+
+        max = std::min(g_IEntityList->GetHighestEntityIndex(), MAX_ENTITIES - 1);
+        int current_ents = g_IEntityList->NumberOfEntities(false);
+
+        valid_ents.clear();
+        player_cache.clear();
+
+        valid_ents.reserve(max + 1);
+        player_cache.reserve(g_GlobalVars->maxClients);
+
+        // First pass: Remove invalid entities
+        for (auto it = array.begin(); it != array.end();)
+        {
+            bool should_remove = true;
+            IClientEntity* entity = nullptr;
+            
+            try
             {
-                valid_ents.emplace_back(&val);
-                auto val_type = val.m_Type();
-                if (val_type == ENTITY_PLAYER || val_type == ENTITY_BUILDING || val_type == ENTITY_NPC)
+                entity = g_IEntityList->GetClientEntity(it->first);
+                if (entity && entity->GetClientClass() && entity->GetClientClass()->m_ClassID)
                 {
-                    if (val.m_bAlivePlayer())
-                    {
-                        if (!internal_entity->IsDormant())
-                        {
-                            val.hitboxes.UpdateBones();
-                        }
-
-                        if (val_type == ENTITY_PLAYER)
-                        {
-                            player_cache.emplace_back(&val);
-                        }
-                    }
-                }
-
-                if (val_type == ENTITY_PLAYER)
-                {
-                    GetPlayerInfo(val.m_IDX, val.player_info);
+                    IClientEntity* internal = it->second.InternalEntity();
+                    if (internal && !internal->IsDormant())
+                        should_remove = false;
                 }
             }
+            catch (...) { }
+
+            if (should_remove)
+            {
+                it->second.Reset();
+                it = array.erase(it);
+            }
+            else
+                ++it;
         }
-        previous_max = max;
-        previous_ent = current_ents;
-    }
-    else
-    {
-        for (int i = 0; i <= max; ++i)
+
+        // Second pass: Update and validate remaining entities
+        for (int i = 0; i <= max; i++)
         {
-            if (!g_IEntityList->GetClientEntity(i) || !g_IEntityList->GetClientEntity(i)->GetClientClass()->m_ClassID)
+            IClientEntity* entity = nullptr;
+            try
+            {
+                entity = g_IEntityList->GetClientEntity(i);
+            }
+            catch (...) 
             {
                 continue;
             }
 
-            CachedEntity &ent = array.try_emplace(i, CachedEntity{ i }).first->second;
-            ent.Update();
-            auto internal_entity = ent.InternalEntity();
-            if (internal_entity)
+            if (!entity || !entity->GetClientClass() || !entity->GetClientClass()->m_ClassID)
+                continue;
+
+            auto it = array.find(i);
+            if (it == array.end())
             {
-                auto ent_type = ent.m_Type();
-                valid_ents.emplace_back(&ent);
-                if (ent_type == ENTITY_PLAYER || ent_type == ENTITY_BUILDING || ent_type == ENTITY_NPC)
+                try
                 {
-                    if (ent.m_bAlivePlayer())
-                    {
-                        if (!internal_entity->IsDormant())
-                        {
-                            ent.hitboxes.UpdateBones();
-                        }
-
-                        if (ent_type == ENTITY_PLAYER)
-                        {
-                            player_cache.emplace_back(&ent);
-                        }
-                    }
+                    it = array.try_emplace(i, CachedEntity{ i }).first;
                 }
-
-                // Even dormant players have player info
-                if (ent_type == ENTITY_PLAYER)
+                catch (...)
                 {
-                    if (!ent.player_info)
-                    {
-                        ent.player_info = new player_info_s;
-                    }
-
-                    GetPlayerInfo(ent.m_IDX, ent.player_info);
+                    continue;
                 }
             }
+
+            CachedEntity &ent = it->second;
+            bool was_alive = ent.m_bAlivePlayer();
+
+            try
+            {
+                ent.Update();
+            }
+            catch (...)
+            {
+                ent.Reset();
+                continue;
+            }
+
+            IClientEntity* internal = ent.InternalEntity();
+            if (!internal || internal->IsDormant())
+                continue;
+
+            bool is_alive = ent.m_bAlivePlayer();
+            if (was_alive && !is_alive)
+            {
+                ent.Reset();
+                continue;
+            }
+
+            valid_ents.push_back(&ent);
+            EntityType type = ent.m_Type();
+
+            if ((type == ENTITY_PLAYER || type == ENTITY_BUILDING || type == ENTITY_NPC) && is_alive)
+            {
+                try
+                {
+                    if (!internal->IsDormant())
+                        ent.hitboxes.UpdateBones();
+
+                    if (type == ENTITY_PLAYER)
+                        player_cache.push_back(&ent);
+                }
+                catch (...) { }
+            }
+
+            if (type == ENTITY_PLAYER)
+            {
+                try
+                {
+                    if (!ent.player_info)
+                        ent.player_info = new player_info_s;
+                    
+                    if (ent.player_info)
+                        GetPlayerInfo(ent.m_IDX, ent.player_info);
+                }
+                catch (...) { }
+            }
         }
+
         previous_max = max;
         previous_ent = current_ents;
     }
+    catch (...)
+    {
+        // If something goes terribly wrong, invalidate everything
+        Invalidate();
+    }
 }
 
-void Invalidate()
+void entity_cache::Invalidate()
 {
-    array.clear();
+    try
+    {
+        for (auto& pair : array)
+            pair.second.Reset();
+        array.clear();
+        valid_ents.clear();
+        player_cache.clear();
+    }
+    catch (...) { }
 }
 
-void Shutdown()
+void entity_cache::Shutdown()
 {
-    array.clear();
+    Invalidate();
     previous_max = 0;
-    max          = -1;
+    max = -1;
 }
-
-int max = 1;
-} // namespace entity_cache
