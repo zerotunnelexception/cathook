@@ -26,11 +26,11 @@ and a lot of useful features, including
 * Automatic matchmaking
 * And many more features!
 
-[FULL LIST OF FEATURES HERE (soon)](https://pastebin.com/p8rGByHT)
+[FULL LIST OF FEATURES HERE](https://pastebin.com/p8rGByHT)
 
-# Installing, updating, attaching (injecting) (SOON
+# Installing, updating, attaching (injecting)
 
-[SOON View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q)
+[View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q) <-- outdated 
 
 ## Community
 ill make later 
