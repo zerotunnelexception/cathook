@@ -26,11 +26,11 @@ and a lot of useful features, including
 * Automatic matchmaking
 * And many more features!
 
-[FULL LIST OF FEATURES HERE (soon)](https://github.com/nullworks/cathook/wiki/Feature-List-and-explanations)
+[FULL LIST OF FEATURES HERE (soon)](https://pastebin.com/p8rGByHT)
 
 # Installing, updating, attaching (injecting) (SOON
 
-[SOON View our short guide to installing and using cathook](https://github.com/nullworks/cathook/wiki/Installing,-Attaching-And-General-Infos)
+[SOON View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q)
 
 ## Community
 ill make later 
