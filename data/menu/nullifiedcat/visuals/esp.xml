@@ -112,6 +112,7 @@
                     <Option name="Vertical" value="3"/>
                 </Select>
             </LabeledObject>
+            <AutoVariable width="fill" target="esp.health-bar.width" label="Health bar width" tooltip="Width of the health bar" min="1" max="20" step="1"/>
             <AutoVariable width="fill" target="esp.hide-invis" label="Hide invisible"/>
         </List>
     </Box>

@@ -33,6 +33,7 @@ static settings::Int esp_expand{ "esp.expand", "0" };
 static settings::Boolean vischeck{ "esp.vischeck", "true" };
 static settings::Boolean hide_invis{ "esp.hide-invis", "false" };
 static settings::Boolean legit{ "esp.legit", "false" };
+static settings::Int healthbar_width{ "esp.health-bar.width", "5" };
 
 static settings::Boolean local_esp{ "esp.show.local", "true" };
 static settings::Boolean buildings{ "esp.show.buildings", "true" };
@@ -551,19 +552,19 @@ void _FASTCALL Healthbar(EntityType &type, int &classid, rgba_t &fg, ESPData &en
             if (*healthbar == 1)
             {
                 draw::RectangleOutlined(min_x, min_y - 6, max_x - min_x + 1, 7, border, 0.5f);
-                draw::Rectangle(min_x + hbw, min_y - 5, -hbw, 5, hp);
+                draw::Rectangle(min_x + hbw, min_y - 5, -hbw, *healthbar_width, hp);
             }
             // Bottom horizontal health bar
             else if (*healthbar == 2)
             {
                 draw::RectangleOutlined(min_x, max_y, max_x - min_x + 1, 7, border, 0.5f);
-                draw::Rectangle(min_x + hbw, max_y + 1, -hbw, 5, hp);
+                draw::Rectangle(min_x + hbw, max_y + 1, -hbw, *healthbar_width, hp);
             }
             // Vertical health bar
             else if (*healthbar == 3)
             {
-                draw::RectangleOutlined(min_x - 7, min_y, 7, max_y - min_y, border, 0.5f);
-                draw::Rectangle(min_x - 6, max_y - hbh - 1, 5, hbh, hp);
+                draw::RectangleOutlined(min_x - 7, min_y, *healthbar_width + 2, max_y - min_y, border, 0.5f);
+                draw::Rectangle(min_x - 6, max_y - hbh - 1, *healthbar_width, hbh, hp);
             }
         }
     }
