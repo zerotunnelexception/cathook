@@ -33,7 +33,7 @@ static settings::Int esp_expand{ "esp.expand", "0" };
 static settings::Boolean vischeck{ "esp.vischeck", "true" };
 static settings::Boolean hide_invis{ "esp.hide-invis", "false" };
 static settings::Boolean legit{ "esp.legit", "false" };
-static settings::Int healthbar_width{ "esp.health-bar.width", "5" };
+static settings::Int healthbar_width{ "esp.health-bar.width", "2" };
 
 static settings::Boolean local_esp{ "esp.show.local", "true" };
 static settings::Boolean buildings{ "esp.show.buildings", "true" };
