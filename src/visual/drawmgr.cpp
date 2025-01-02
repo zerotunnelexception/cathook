@@ -80,7 +80,7 @@ void DrawCheatVisuals()
         {
             auto color = colors::RainbowCurrent();
             color.a    = 1.0f;
-            AddSideString("cathook by nullworks", color);
+            AddSideString("cathook by melody & nullworks", color);
             if (!info_text_min)
             {
                 AddSideString(hack::GetVersion(),
