@@ -24,7 +24,7 @@
 #include "client_class.h"
 #include "Constants.hpp"
 #include <optional>
-#include "boost/unordered/unordered_flat_map.hpp"
+#include <unordered_map>
 #include <soundcache.hpp>
 
 struct matrix3x4_t;
@@ -68,7 +68,7 @@ class CachedEntity
 public:
     typedef CachedEntity ThisClass;
     CachedEntity();
-    CachedEntity(u_int16_t idx);
+    CachedEntity(int idx);
     ~CachedEntity();
 
     __attribute__((hot)) void Update();
@@ -97,7 +97,7 @@ public:
         return *reinterpret_cast<T *>(uintptr_t(RAW_ENT(this)) + offset);
     }
 
-    const u_int16_t m_IDX;
+    const int m_IDX;
 
     int m_iClassID()
     {
@@ -236,14 +236,14 @@ public:
 
 namespace entity_cache
 {
-
 // b1g fat array in
-extern u_int16_t max;
-extern u_int16_t previous_max;
+extern int max;
+extern int previous_max;
 extern std::vector<CachedEntity *> valid_ents;
-extern boost::unordered_flat_map<u_int16_t, CachedEntity> array;
+extern std::unordered_map<int, CachedEntity> array;
 extern std::vector<CachedEntity *> player_cache;
-inline CachedEntity *Get(const u_int16_t &idx)
+
+inline CachedEntity *Get(const int &idx)
 {
     auto test = array.find(idx);
     if (test == array.end())
@@ -251,9 +251,9 @@ inline CachedEntity *Get(const u_int16_t &idx)
     else
         return &test->second;
 }
+
 void dodgeProj(CachedEntity *proj_ptr);
 __attribute__((hot)) void Update();
 void Invalidate();
 void Shutdown();
-
 } // namespace entity_cache

@@ -67,23 +67,23 @@ void UpdateSearch()
 #if !ENABLE_VISUALS
         queue_timer.update();
 #endif
-        tfmm::LeaveQueue();
+        tfmm::leaveQueue();
     }
     //    if (gc && !gc->BConnectedToMatchServer(false) &&
     //            queuetime.test_and_set(10 * 1000 * 60) &&
     //            !gc->BHaveLiveMatch())
-    //        tfmm::LeaveQueue();
+    //        tfmm::leaveQueue();
 
-    if (*auto_requeue && startqueue_timer.check(5000) && gc && !gc->BConnectedToMatchServer(false) && !gc->BHaveLiveMatch() && !invites && pc && !(pc->BInQueueForMatchGroup(tfmm::GetQueue()) || pc->BInQueueForStandby()))
+    if (*auto_requeue && startqueue_timer.check(5000) && gc && !gc->BConnectedToMatchServer(false) && !gc->BHaveLiveMatch() && !invites && pc && !(pc->BInQueueForMatchGroup(tfmm::getQueue()) || pc->BInQueueForStandby()))
     {
-        logging::Info("Starting queue for standby, Invites %d", invites);
-        tfmm::StartQueueStandby();
+        logging::Info("Starting queue for standby");
+        tfmm::startQueueStandby();
     }
 
-    if (*auto_queue && startqueue_timer.check(5000) && gc && !gc->BConnectedToMatchServer(false) && !gc->BHaveLiveMatch() && !invites && pc && !(pc->BInQueueForMatchGroup(tfmm::GetQueue()) || pc->BInQueueForStandby()))
+    if (*auto_queue && startqueue_timer.check(5000) && gc && !gc->BConnectedToMatchServer(false) && !gc->BHaveLiveMatch() && !invites && pc && !(pc->BInQueueForMatchGroup(tfmm::getQueue()) || pc->BInQueueForStandby()))
     {
-        logging::Info("Starting queue, Invites %d", invites);
-        tfmm::StartQueue();
+        logging::Info("Starting queue");
+        tfmm::startQueue();
     }
     startqueue_timer.test_and_set(5000);
 #if !ENABLE_VISUALS
@@ -119,7 +119,10 @@ static void Update()
 void OnShutdown()
 {
     if (*auto_queue)
-        tfmm::StartQueue();
+    {
+        logging::Info("Starting queue");
+        tfmm::startQueue();
+    }
 }
 
 static CatCommand get_steamid("print_steamid", "Prints your SteamID", []() { g_ICvar->ConsoleColorPrintf(MENU_COLOR, "%u\n", g_ISteamUser->GetSteamID().GetAccountID()); });
