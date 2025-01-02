@@ -142,7 +142,10 @@ DEFINE_HOOKED_METHOD(DispatchUserMessage, bool, void *this_, int type, bf_read &
         {
             data = std::string(buf_data);
             if (data.find("class_") != data.npos)
+            {
+                g_IEngine->ClientCmd_Unrestricted("closedwelcomemenu");
                 return false;
+            }
         }
         break;
     case 5:

@@ -292,3 +292,6 @@ scripts/updater-preferences
 
 # clangd
 .cache
+
+# Amalgam folder
+src/Amalgam/
