@@ -41,8 +41,18 @@ inline void CachedEntity::Update()
             return;
         }
 
-        // Check if entity is dormant or dead
-        if (ent->IsDormant() || (m_Type() == ENTITY_PLAYER && !m_bAlivePlayer()))
+        // Check if entity is dormant, dead, or in transition
+        if (ent->IsDormant() || 
+            (m_Type() == ENTITY_PLAYER && !m_bAlivePlayer()) ||
+            g_IEngine->IsDrawingLoadingImage() ||
+            !g_IEngine->IsInGame())
+        {
+            Reset();
+            return;
+        }
+
+        // Additional safety check for map transitions
+        if (g_IEngine->IsLevelMainMenuBackground())
         {
             Reset();
             return;
@@ -109,8 +119,14 @@ void entity_cache::Update()
 {
     try
     {
-        if (g_Settings.bInvalid)
+        if (g_Settings.bInvalid || 
+            g_IEngine->IsDrawingLoadingImage() || 
+            !g_IEngine->IsInGame() ||
+            g_IEngine->IsLevelMainMenuBackground())
+        {
+            Invalidate();
             return;
+        }
 
         max = std::min(g_IEntityList->GetHighestEntityIndex(), MAX_ENTITIES - 1);
         int current_ents = g_IEntityList->NumberOfEntities(false);
@@ -133,7 +149,7 @@ void entity_cache::Update()
                 if (entity && entity->GetClientClass() && entity->GetClientClass()->m_ClassID)
                 {
                     IClientEntity* internal = it->second.InternalEntity();
-                    if (internal && !internal->IsDormant())
+                    if (internal && !internal->IsDormant() && !g_IEngine->IsDrawingLoadingImage())
                         should_remove = false;
                 }
             }
@@ -191,7 +207,7 @@ void entity_cache::Update()
             }
 
             IClientEntity* internal = ent.InternalEntity();
-            if (!internal || internal->IsDormant())
+            if (!internal || internal->IsDormant() || g_IEngine->IsDrawingLoadingImage())
                 continue;
 
             bool is_alive = ent.m_bAlivePlayer();
@@ -208,7 +224,7 @@ void entity_cache::Update()
             {
                 try
                 {
-                    if (!internal->IsDormant())
+                    if (!internal->IsDormant() && !g_IEngine->IsDrawingLoadingImage())
                         ent.hitboxes.UpdateBones();
 
                     if (type == ENTITY_PLAYER)
@@ -224,7 +240,7 @@ void entity_cache::Update()
                     if (!ent.player_info)
                         ent.player_info = new player_info_s;
                     
-                    if (ent.player_info)
+                    if (ent.player_info && !g_IEngine->IsDrawingLoadingImage())
                         GetPlayerInfo(ent.m_IDX, ent.player_info);
                 }
                 catch (...) { }

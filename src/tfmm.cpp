@@ -120,51 +120,104 @@ int getQueue()
 
 void startQueue()
 {
+    if (g_IEngine->IsDrawingLoadingImage() || !g_IEngine->IsInGame())
+        return;
+
     re::CTFPartyClient *client = re::CTFPartyClient::GTFPartyClient();
     if (client)
     {
-        if (*queue == 7)
-            client->LoadSavedCasualCriteria();
-        client->RequestQueueForMatch((int) queue);
-        // client->RequestQueueForStandby();
-        queuecount++;
+        try
+        {
+            if (*queue == 7)
+                client->LoadSavedCasualCriteria();
+            client->RequestQueueForMatch((int) queue);
+            queuecount++;
+        }
+        catch (...)
+        {
+            logging::Info("Failed to start queue - exception occurred");
+        }
     }
     else
         logging::Info("queue_start: CTFPartyClient == null!");
 }
 void startQueueStandby()
 {
+    if (g_IEngine->IsDrawingLoadingImage() || !g_IEngine->IsInGame())
+        return;
+
     re::CTFPartyClient *client = re::CTFPartyClient::GTFPartyClient();
     if (client)
     {
-        client->RequestQueueForStandby();
+        try
+        {
+            client->RequestQueueForStandby();
+        }
+        catch (...)
+        {
+            logging::Info("Failed to start standby queue - exception occurred");
+        }
     }
 }
 void leaveQueue()
 {
     re::CTFPartyClient *client = re::CTFPartyClient::GTFPartyClient();
     if (client)
-        client->RequestLeaveForMatch((int) queue);
+    {
+        try
+        {
+            client->RequestLeaveForMatch((int) queue);
+        }
+        catch (...)
+        {
+            logging::Info("Failed to leave queue - exception occurred");
+        }
+    }
     else
         logging::Info("queue_start: CTFPartyClient == null!");
 }
 
 void disconnectAndAbandon()
 {
-    abandon();
-    leaveQueue();
+    try
+    {
+        abandon();
+        leaveQueue();
+    }
+    catch (...)
+    {
+        logging::Info("Failed to disconnect and abandon - exception occurred");
+        // Try to force disconnect as a fallback
+        hack::ExecuteCommand("disconnect");
+    }
 }
 
 void abandon()
 {
     re::CTFGCClientSystem *gc = re::CTFGCClientSystem::GTFGCClientSystem();
-    if (gc && gc->BConnectedToMatchServer(false))
-        gc->AbandonCurrentMatch();
-    else if (!gc)
-        logging::Info("abandon: CTFGCClientSystem == null!");
+    if (gc)
+    {
+        try
+        {
+            if (gc->BConnectedToMatchServer(false))
+                gc->AbandonCurrentMatch();
+            else
+            {
+                logging::Info("Not connected to a Match server. Disconnecting normally");
+                hack::ExecuteCommand("disconnect");
+            }
+        }
+        catch (...)
+        {
+            logging::Info("Failed to abandon match - exception occurred");
+            // Try to force disconnect as a fallback
+            hack::ExecuteCommand("disconnect");
+        }
+    }
     else
     {
-        logging::Info("Not connected to a Match server. Disconnecting normally");
+        logging::Info("abandon: CTFGCClientSystem == null!");
+        // Try to force disconnect as a fallback
         hack::ExecuteCommand("disconnect");
     }
 }
