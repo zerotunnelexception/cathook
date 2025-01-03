@@ -164,8 +164,27 @@ function performupdate() {
 
     #Create build folder in case it doesn't exist
     mkdir -p ./build
+
+    # Ask about textmode
+    if [ "$dialog" == true ]; then
+        value="Textmode"
+        dialog --keep-tite --title "Build Type" --yesno "Build cathook for textmode?" 10 25 || value="Normal"
+    else
+        read -p "Build cathook for textmode? [Y/n] " yn
+        case $yn in
+            [Nn]* ) value="Normal";;
+            * ) value="Textmode";;
+        esac
+    fi
+
     # Update cathook
-    pushd build && cmake .. -DEnableNullNexus=0 && cmake --build . --target cathook -- -j$proccount || { echo -e "\033[1;31m \n \nFailed to compile cathook\n\033[0m"; exit 1; }
+    pushd build
+    if [ "$value" == "Textmode" ]; then
+        cmake .. -DVisuals_DrawType="Textmode" -DEnableNullNexus=0 && cmake --build . --target cathook -- -j$proccount || { echo -e "\033[1;31m \n \nFailed to compile cathook\n\033[0m"; exit 1; }
+    else
+        cmake .. -DVisuals_DrawType="IMGUI" -DEnableNullNexus=0 && cmake --build . --target cathook -- -j$proccount || { echo -e "\033[1;31m \n \nFailed to compile cathook\n\033[0m"; exit 1; }
+    fi
+
     # Update data
     cwd="$(pwd)"
     cmake --build . --target data || { echo -e "\033[1;31m\nFailed to update /opt/cathook/data directory! Trying with root rights!\n\033[0m"; $SUDO bash -c "cd \"$cwd\"; cmake --build . --target data" || { echo -e "\033[1;31m\nFailed to update /opt/cathook/data directory\n\033[0m"; exit 1; } }
