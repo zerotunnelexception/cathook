@@ -3,6 +3,8 @@
  *
  *  Created on: Jul 28, 2017
  *      Author: nullifiedcat
+ *  Credits to cinortaxeH for fixing autojoin
+ * 
  */
 
 #include <settings/Int.hpp>

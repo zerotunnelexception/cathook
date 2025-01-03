@@ -10,6 +10,7 @@
 #include <settings/Bool.hpp>
 #include "common.hpp"
 #include "soundcache.hpp"
+#include <settings/Float.hpp>
 
 namespace hacks::shared::esp
 {
@@ -34,6 +35,7 @@ static settings::Boolean vischeck{ "esp.vischeck", "true" };
 static settings::Boolean hide_invis{ "esp.hide-invis", "false" };
 static settings::Boolean legit{ "esp.legit", "false" };
 static settings::Int healthbar_width{ "esp.health-bar.width", "2" };
+static settings::Float healthbar_animation_speed{ "esp.health-bar.animation-speed", "5.0f" };
 
 static settings::Boolean local_esp{ "esp.show.local", "true" };
 static settings::Boolean buildings{ "esp.show.buildings", "true" };
@@ -511,15 +513,22 @@ void _FASTCALL Sightlines(CachedEntity *ent, rgba_t &fg)
         }
     }
 }
+
+// Store animated health values
+struct AnimatedHealth {
+    float current;
+    float target;
+    Timer update_timer{};
+};
+static boost::unordered_flat_map<int, AnimatedHealth> animated_health_map{};
+
 void _FASTCALL Healthbar(EntityType &type, int &classid, rgba_t &fg, ESPData &ent_data, CachedEntity *ent)
 {
-
     if (type == ENTITY_PLAYER || type == ENTITY_BUILDING)
     {
         // Get collidable from the cache
         if (GetCollide(ent))
         {
-
             // Pull the cached collide info
             int max_x = ent_data.collide_max.x;
             int max_y = ent_data.collide_max.y;
@@ -541,12 +550,27 @@ void _FASTCALL Healthbar(EntityType &type, int &classid, rgba_t &fg, ESPData &en
                 break;
             }
 
+            // Get animated health value
+            auto &anim_health = animated_health_map[ent->m_IDX];
+            if (anim_health.update_timer.check(16))  // ~60 fps
+            {
+                anim_health.target = health;
+                float diff = anim_health.target - anim_health.current;
+                if (std::abs(diff) > 0.01f)
+                {
+                    anim_health.current += diff * (*healthbar_animation_speed * 0.016f); // 16ms = 0.016s
+                }
+            }
+            if (anim_health.current == 0.0f)
+                anim_health.current = health;
+
             // Get Colors
-            rgba_t hp     = colors::Transparent(colors::Health(health, healthmax), fg.a);
+            rgba_t hp     = colors::Transparent(colors::Health(anim_health.current, healthmax), fg.a);
             rgba_t border = ((classid == RCC_PLAYER) && IsPlayerInvisible(ent)) ? colors::FromRGBA8(160, 160, 160, fg.a * 255.0f) : colors::Transparent(colors::black, fg.a);
+            
             // Get bar width and height
-            int hbw = (max_x - min_x - 1) * std::min((float) health / (float) healthmax, 1.0f);
-            int hbh = (max_y - min_y - 2) * std::min((float) health / (float) healthmax, 1.0f);
+            int hbw = (max_x - min_x - 1) * std::min((float) anim_health.current / (float) healthmax, 1.0f);
+            int hbh = (max_y - min_y - 2) * std::min((float) anim_health.current / (float) healthmax, 1.0f);
 
             // Top horizontal health bar
             if (*healthbar == 1)
@@ -569,6 +593,7 @@ void _FASTCALL Healthbar(EntityType &type, int &classid, rgba_t &fg, ESPData &en
         }
     }
 }
+
 void DrawStrings(EntityType &type, bool &transparent, Vector &draw_point, ESPData &ent_data, CachedEntity *ent)
 {
     PROF_SECTION(PT_esp_drawstrings);
