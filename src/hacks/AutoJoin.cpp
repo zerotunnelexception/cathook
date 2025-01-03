@@ -13,7 +13,7 @@
 #include "hack.hpp"
 #include "MiscTemporary.hpp"
 
-namespace hacks::autojoin
+namespace hacks::shared::autojoin
 {
 static settings::Boolean autojoin_team{ "autojoin.team", "true" };
 static settings::Boolean random_class{ "autojoin.random-class", "false" };
@@ -116,7 +116,7 @@ static void Update()
     }
 }
 
-void OnShutdown()
+void onShutdown()
 {
     if (*auto_queue)
     {
@@ -132,5 +132,6 @@ static InitRoutine init(
     {
         EC::Register(EC::CreateMove, Update, "cm_autojoin", EC::average);
         EC::Register(EC::Paint, UpdateSearch, "paint_autojoin", EC::average);
+        EC::Register(EC::Shutdown, onShutdown, "shutdown_autojoin", EC::average);
     });
-} // namespace hacks::autojoin
+} // namespace hacks::shared::autojoin
