@@ -79,6 +79,15 @@
     <Box padding="12 6 6 6" width="content" height="content" name="Resolver" x="170">
         <List width="150">
             <AutoVariable width="fill" target="anti-anti-aim.enable" label="Enable" tooltip="Attempt to bruteforce enemy antiaim."/>
+            <AutoVariable width="fill" target="anti-anti-aim.debug.enable" label="Debug" tooltip="Show resolver debug information"/>
+            <LabeledObject width="fill" label="Resolver Mode">
+                <Select target="anti-anti-aim.resolver.mode">
+                    <Option name="Aggressive" value="0"/>
+                    <Option name="Adaptive" value="1"/>
+                    <Option name="Conservative" value="2"/>
+                </Select>
+            </LabeledObject>
+            <AutoVariable width="fill" target="anti-anti-aim.resolver.min-hits" label="Min hits" tooltip="Minimum hits before considering angle resolved" min="1" max="5"/>
         </List>
     </Box>
     <Box padding="12 6 6 6" name="Anti-resolver" width="content" height="content" x="340">

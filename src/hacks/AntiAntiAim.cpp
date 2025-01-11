@@ -10,6 +10,8 @@ namespace hacks::shared::anti_anti_aim
 {
 static settings::Boolean enable{ "anti-anti-aim.enable", "false" };
 static settings::Boolean debug{ "anti-anti-aim.debug.enable", "false" };
+static settings::Int resolver_mode{ "anti-anti-aim.resolver.mode", "0" };
+static settings::Int min_hits{ "anti-anti-aim.resolver.min-hits", "2" };
 
 boost::unordered_flat_map<unsigned, brutedata> resolver_map;
 std::array<CachedEntity *, 32> sniperdot_array;
@@ -60,7 +62,7 @@ void frameStageNotify(ClientFrameStage_t stage)
 #endif
 }
 
-static std::array<float, 5> yaw_resolves{ 0.0f, 180.0f, 65.0f, -65.0f, -180.0f };
+static std::array<float, 8> yaw_resolves{ 0.0f, 180.0f, 90.0f, -90.0f, 45.0f, -45.0f, 135.0f, -135.0f };
 
 static float resolveAngleYaw(float angle, brutedata &brute)
 {
@@ -71,16 +73,41 @@ static float resolveAngleYaw(float angle, brutedata &brute)
     while (angle < -180)
         angle += 360;
 
-    // Yaw Resolving
-    // Find out which angle we should try
-    int entry = (int) std::floor((brute.brutenum / 2.0f)) % yaw_resolves.size();
-    angle += yaw_resolves[entry];
+    // If we've hit the target enough times with this angle, keep using it
+    if (brute.hits_in_a_row >= *min_hits)
+        return brute.new_angle.y;
+        
+    // Different modes have different strategies
+    switch (*resolver_mode) 
+    {
+    case 0: // Aggressive - try all angles quickly
+    {
+        int entry = (brute.brutenum % yaw_resolves.size());
+        angle += yaw_resolves[entry];
+        break;
+    }
+    case 1: // Adaptive - base on success rate
+    {
+        int entry = (int)std::floor((brute.brutenum / 2.0f)) % yaw_resolves.size();
+        if (brute.hits_in_a_row > 0)
+            entry = brute.last_successful_angle;
+        angle += yaw_resolves[entry];
+        break;
+    }
+    case 2: // Conservative - change angles slowly
+    {
+        int entry = (int)std::floor((brute.brutenum / 4.0f)) % yaw_resolves.size();
+        angle += yaw_resolves[entry];
+        break;
+    }
+    }
 
     while (angle > 180)
         angle -= 360;
 
     while (angle < -180)
         angle += 360;
+        
     brute.new_angle.y = angle;
     return angle;
 }
@@ -109,19 +136,45 @@ static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
                 sniper_dot = nullptr;
         }
     }
-    // No sniper dot/not using a sniperrifle.
+    
+    // Enhanced pitch resolver based on mode
     if (sniper_dot == nullptr)
     {
-        if (brute.brutenum % 2)
+        switch (*resolver_mode)
         {
-            // Pitch resolver
-            if (angle >= 90)
-                angle = -89;
-            if (angle <= -90)
-                angle = 89;
+        case 0: // Aggressive
+            if (angle >= 89.0f || angle <= -89.0f)
+            {
+                if (brute.brutenum % 4 == 0)
+                    angle = 89.0f;
+                else if (brute.brutenum % 4 == 1)
+                    angle = -89.0f;
+                else if (brute.brutenum % 4 == 2)
+                    angle = 0.0f;
+                else
+                    angle = angle > 0 ? -89.0f : 89.0f;
+            }
+            break;
+            
+        case 1: // Adaptive
+            if (brute.hits_in_a_row > 0)
+                angle = brute.last_successful_angle;
+            else if (angle >= 89.0f || angle <= -89.0f)
+            {
+                if (brute.brutenum % 2)
+                    angle = angle > 0 ? -89.0f : 89.0f;
+            }
+            break;
+            
+        case 2: // Conservative
+            if (angle >= 89.0f || angle <= -89.0f)
+            {
+                if (brute.brutenum % 2)
+                    angle = 0.0f;
+            }
+            break;
         }
     }
-    // Sniper dot found, use it.
     else
     {
         // Get End and start point
@@ -145,8 +198,14 @@ void increaseBruteNum(int idx)
     if (CE_BAD(ent) || !ent->player_info->friendsID)
         return;
     auto &data = hacks::shared::anti_anti_aim::resolver_map[ent->player_info->friendsID];
-    if (data.hits_in_a_row >= 4)
-        data.hits_in_a_row = 2;
+    
+    // If we've hit enough times in a row, consider this angle resolved
+    if (data.hits_in_a_row >= *min_hits)
+    {
+        data.hits_in_a_row = *min_hits - 1;
+        data.last_successful_angle = (int)std::floor((data.brutenum / 2.0f)) % yaw_resolves.size();
+        return;
+    }
     else if (data.hits_in_a_row >= 2)
         data.hits_in_a_row = 0;
     else

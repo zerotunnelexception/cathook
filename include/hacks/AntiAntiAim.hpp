@@ -13,6 +13,7 @@ struct brutedata
 {
     int brutenum{ 0 };
     int hits_in_a_row{ 0 };
+    int last_successful_angle{ 0 };
     Vector original_angle{};
     Vector new_angle{};
 };
