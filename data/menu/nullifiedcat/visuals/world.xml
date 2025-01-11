@@ -15,7 +15,6 @@
         <List width="180">
             <AutoVariable width="fill" target="visual.thirdperson.enable" label="Enable thirdperson"/>
             <AutoVariable width="fill" target="visual.thirdperson-button" label="Thirdperson button" tooltip="Set a button to toggle thirdperson."/>
-            <AutoVariable width="fill" target="visual.thirdperson.real-angles" label="Show angles in thirdperson" tooltip="Show real antiaim angles in third person."/>
             <AutoVariable width="fill" target="visual.thirdperson.disable-zoomed" label="Disable when zoomed" tooltip="Disables thirdperson when zoomed in."/>
         </List>
     </Box>

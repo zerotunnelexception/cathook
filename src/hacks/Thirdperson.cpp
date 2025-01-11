@@ -64,7 +64,9 @@ void frameStageNotify()
         CE_INT(LOCAL_E, netvar.nForceTauntCam) = 0;
         was_enabled                            = false;
     }
-    if (real_angles && g_IInput->CAM_IsThirdPerson())
+    
+    // Always update real angles in third person, not just when real_angles is enabled
+    if (g_IInput->CAM_IsThirdPerson())
     {
         CE_FLOAT(LOCAL_E, netvar.deadflag + 4) = g_pLocalPlayer->realAngles.x;
         CE_FLOAT(LOCAL_E, netvar.deadflag + 8) = g_pLocalPlayer->realAngles.y;
