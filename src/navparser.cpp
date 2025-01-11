@@ -1051,38 +1051,38 @@ static bool ShouldBhopToTarget()
         !(CE_INT(LOCAL_E, netvar.iFlags) & FL_ONGROUND))
         return was_bhopping;
         
-    auto current_target = hacks::shared::aimbot::CurrentTarget();
-    
-    // If we have a target, only bhop when:
-    // 1. Target is far away (>bhop_target_distance units)
-    // 2. AND we DON'T have visibility
-    if (current_target)
+    // Check for any enemies in range
+    bool enemy_in_range = false;
+    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
     {
-        float target_distance = g_pLocalPlayer->v_Origin.DistTo(current_target->m_vecOrigin());
-        if (target_distance > *bhop_target_distance && !HasVisibilityToTarget(current_target))
+        CachedEntity* ent = ENTITY(i);
+        if (CE_BAD(ent) || !ent->m_bAlivePlayer() || ent->m_iTeam() == g_pLocalPlayer->team)
+            continue;
+            
+        float distance = g_pLocalPlayer->v_Origin.DistTo(ent->m_vecOrigin());
+        if (distance < *bhop_target_distance)
         {
-            // Start bhopping only when we have some initial speed
-            if (!was_bhopping)
-            {
-                if (current_velocity.Length2D() > 250.0f)
-                {
-                    was_bhopping = true;
-                    return true;
-                }
-                // Build up speed by running forward
-                current_user_cmd->forwardmove = 450.0f;
-                return false;
-            }
-            return true;
+            enemy_in_range = true;
+            break;
         }
+    }
+    
+    // If there are enemies in range, don't bhop
+    if (enemy_in_range)
+    {
         was_bhopping = false;
         return false;
     }
     
-    // No target - check if we should bhop
-    // Only bhop if we have enough speed or were already bhopping
-    if (!was_bhopping && current_velocity.Length2D() < 250.0f)
+    // Start bhopping only when we have some initial speed
+    if (!was_bhopping)
     {
+        if (current_velocity.Length2D() > 250.0f)
+        {
+            was_bhopping = true;
+            return true;
+        }
+        // Build up speed by running forward
         current_user_cmd->forwardmove = 450.0f;
         return false;
     }
@@ -1120,38 +1120,42 @@ static float EvaluatePosition(const Vector &pos, const Vector &target_pos, CNavA
     float distance_score = -(std::abs(distance - ideal_distance) / 100.0f);
     score += distance_score;
     
-    // Height advantage bonus (smaller bonus than before)
-    float height_advantage = pos.z - target_pos.z;
-    if (height_advantage > 0)
-        score += ((std::min)(height_advantage, 200.0f) / 200.0f) * 30.0f;  // Max 30 points for height
-        
-    // Objective proximity bonus
-    if (area->m_attributeFlags & (1 << 17))  // NAV_MESH_CAPTURE_POINT
+    // Only calculate these scores if HVH mode is enabled
+    if (*hvh_enabled)
     {
-        // If we're a combat class or in HVH mode, give less weight to objectives
-        if (*hvh_enabled || g_pLocalPlayer->clazz == tf_sniper || g_pLocalPlayer->clazz == tf_spy)
+        // Height advantage bonus (smaller bonus than before)
+        float height_advantage = pos.z - target_pos.z;
+        if (height_advantage > 0 && *hvh_prefer_highground)
+            score += ((std::min)(height_advantage, 200.0f) / 200.0f) * 30.0f;  // Max 30 points for height
+            
+        // Line of sight bonus
+        Vector eye = pos;
+        eye.z += 41.5f; // Approximate eye position
+        if (IsVectorVisible(eye, target_pos))
+            score += 40.0f;  // Significant bonus for having line of sight
+            
+        // Cover availability bonus
+        trace_t trace;
+        for (int i = 0; i < 8; i++)  // Check 8 directions
+        {
+            float angle = (float)i * (360.0f / 8.0f);
+            Vector check = pos + Vector(cos(angle) * 100.0f, sin(angle) * 100.0f, 0);
+            Ray_t ray;
+            ray.Init(pos, check);
+            g_ITrace->TraceRay(ray, MASK_SOLID, &trace::filter_default, &trace);
+            if (trace.fraction < 1.0f)
+                score += 5.0f;  // Small bonus for each direction that has cover
+        }
+    }
+    
+    // Objective proximity bonus - only if not in HVH mode or objectives are not ignored
+    if ((!*hvh_enabled || !*hvh_ignore_objectives) && (area->m_attributeFlags & (1 << 17)))  // NAV_MESH_CAPTURE_POINT
+    {
+        // If we're a combat class, give less weight to objectives
+        if (g_pLocalPlayer->clazz == tf_sniper || g_pLocalPlayer->clazz == tf_spy)
             score += 20.0f;
         else
             score += 50.0f;  // Big bonus for being near objective
-    }
-    
-    // Line of sight bonus
-    Vector eye = pos;
-    eye.z += 41.5f; // Approximate eye position
-    if (IsVectorVisible(eye, target_pos))
-        score += 40.0f;  // Significant bonus for having line of sight
-        
-    // Cover availability bonus
-    trace_t trace;
-    for (int i = 0; i < 8; i++)  // Check 8 directions
-    {
-        float angle = (float)i * (360.0f / 8.0f);
-        Vector check = pos + Vector(cos(angle) * 100.0f, sin(angle) * 100.0f, 0);
-        Ray_t ray;
-        ray.Init(pos, check);
-        g_ITrace->TraceRay(ray, MASK_SOLID, &trace::filter_default, &trace);
-        if (trace.fraction < 1.0f)
-            score += 5.0f;  // Small bonus for each direction that has cover
     }
     
     return score;
@@ -1251,37 +1255,71 @@ static void HandleSafePeeking()
     static Timer peek_timer{};
     static bool is_peeking = false;
     static Vector peek_pos = g_pLocalPlayer->v_Origin;
+    static Vector last_safe_pos = g_pLocalPlayer->v_Origin;
     
     // Get direction to target
     Vector to_target = current_target->m_vecOrigin() - g_pLocalPlayer->v_Origin;
     to_target.z = 0;
     to_target.NormalizeInPlace();
     
+    // Get ideal distance based on weapon
+    float ideal_distance = 800.0f;
+    if (CE_GOOD(LOCAL_W))
+    {
+        if (LOCAL_W->m_iClassID() == CL_CLASS(CTFKnife))
+            ideal_distance = 100.0f;
+        else if (LOCAL_W->m_iClassID() == CL_CLASS(CTFScatterGun))
+            ideal_distance = 300.0f;
+        else if (g_pLocalPlayer->clazz == tf_sniper)
+            ideal_distance = 800.0f;
+        else if (g_pLocalPlayer->clazz == tf_heavy)
+            ideal_distance = 450.0f;
+    }
+    
+    // Check if we're at a safe distance
+    float current_distance = g_pLocalPlayer->v_Origin.DistTo(current_target->m_vecOrigin());
+    bool at_safe_distance = (current_distance >= ideal_distance * 0.8f);
+    
+    // Find nearest cover point
+    Vector cover_pos = FindNearestCover(current_target->m_vecOrigin(), g_pLocalPlayer->v_Origin);
+    bool has_cover = !cover_pos.IsZero();
+    
     if (!is_peeking)
     {
-        // Store our position when we start peeking
-        if (peek_timer.check(1000))  // Wait between peeks
+        // Only peek if we're at a safe distance and have cover
+        if (at_safe_distance && has_cover && peek_timer.check(1500))  // Longer delay between peeks
         {
-            peek_pos = g_pLocalPlayer->v_Origin;
+            // Store our safe position
+            last_safe_pos = g_pLocalPlayer->v_Origin;
+            peek_pos = cover_pos;
             is_peeking = true;
             peek_timer.update();
+        }
+        else if (!at_safe_distance)
+        {
+            // Move to safe distance if too close
+            Vector retreat_pos = g_pLocalPlayer->v_Origin - to_target * (ideal_distance - current_distance);
+            navparser::NavEngine::navTo(retreat_pos, true, true);
         }
     }
     else
     {
-        if (peek_timer.check(150))  // Quick peek duration
+        // Quick peek with shorter duration if we see target
+        bool can_see_target = HasVisibilityToTarget(current_target);
+        int peek_duration = can_see_target ? 100 : 250;  // Shorter peek if we see target
+        
+        if (peek_timer.check(peek_duration))
         {
             is_peeking = false;
             peek_timer.update();
             
-            // Return to safe position
-            Vector retreat_pos = peek_pos - to_target * 100.0f;
-            navparser::NavEngine::navTo(retreat_pos, true, true);
+            // Return to last safe position
+            navparser::NavEngine::navTo(last_safe_pos, true, true);
         }
         else
         {
-            // Move forward during peek
-            Vector peek_target = peek_pos + to_target * 100.0f;
+            // Peek from cover
+            Vector peek_target = peek_pos + to_target * 50.0f;  // Peek less far out
             navparser::NavEngine::navTo(peek_target, true, true);
         }
     }
@@ -1297,7 +1335,7 @@ static void CreateMove()
         return;
     }
 
-    // If HVH mode is enabled, override certain behaviors
+    // Only run HVH logic if enabled
     if (*hvh_enabled)
     {
         // Force disable certain options that conflict with HVH mode
