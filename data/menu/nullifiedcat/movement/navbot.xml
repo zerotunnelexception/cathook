@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Tab name="NavBot" padding="4 4 4 4">
+    <Box name="NavBot" width="content" height="content" padding="12 6 6 6">
+        <List width="150">
+            <AutoVariable width="fill" target="nav.enabled" label="Enable pathing"/>
+            <AutoVariable width="fill" target="nav.draw" label="Draw path"/>
+            <AutoVariable width="fill" target="nav.look-at-path" label="Look at path"/>
+            <AutoVariable width="fill" target="nav.vischeck-runtime.enabled" label="Runtime vischeck" tooltip="Check visibility while pathing"/>
+            <AutoVariable width="fill" target="nav.vischeck-runtime.delay" label="Vischeck delay" tooltip="Delay between visibility checks in milliseconds"/>
+            <AutoVariable width="fill" target="navbot.enabled" label="Enable NavBot"/>
+            <AutoVariable width="fill" target="navbot.capture-objectives" label="Capture objectives" tooltip="Automatically capture objectives (CTF, CP, and PL only)."/>
+            <AutoVariable width="fill" target="navbot.search-health" label="Search health"/>
+            <AutoVariable width="fill" target="navbot.search-ammo" label="Search ammo"/>
+            <AutoVariable width="fill" target="navbot.escape-danger" label="Escape danger"/>
+            <AutoVariable width="fill" target="navbot.escape-danger.slight-danger.capping" label="Safe capping" tooltip="Make bots run pre-emptively from capture points in case of danger."/>
+            <AutoVariable width="fill" target="navbot.escape-danger.ctf-cap" label="Escape danger w. intel" tooltip="Also try to escape from danger when carrying intel."/>
+            <AutoVariable width="fill" target="navbot.primary-only" label="Auto best weapon"/>
+            <AutoVariable width="fill" target="navbot.melee-mode" label="Melee only"/>
+            <LabeledObject width="fill" label="Force slot">
+                <Select target="navbot.force-slot">
+                    <Option name="Don't force" value="0"/>
+                    <Option name="Primary" value="1"/>
+                    <Option name="Secondary" value="2"/>
+                    <Option name="Melee" value="3"/>
+                    <Option name="PDA" value="4"/>
+                    <Option name="PDA2" value="5"/>
+                </Select>
+            </LabeledObject>
+            <AutoVariable width="fill" target="navbot.autojump.enabled" label="Enable autojump"/>
+            <AutoVariable width="fill" target="navbot.autojump.trigger-distance" label="Jump distance"/>
+            <AutoVariable width="fill" target="navbot.snipe-sentries" label="Try to target sentries"/>
+            <AutoVariable width="fill" target="navbot.snipe-sentries.shortrange" label="Scout/Pyro sentry mode" tooltip="Try to target sentries as scout/pyro aswell. Usually not recommended."/>
+            <AutoVariable width="fill" target="nav.nojumppaths" label="Prefer no-jump paths" tooltip="Try to find paths that don't require jumping when possible"/>
+            <AutoVariable width="fill" target="nav.safepathing" label="Safe pathing" tooltip="Try to path through safer areas away from edges"/>
+            <AutoVariable width="fill" target="navbot.stay-near" label="Stalk enemies" tooltip="Try to outrange as sniper and close distance as scout/heavy"/>
+        </List>
+    </Box>
+    <Box name="HVH NavBot" width="content" height="content" padding="12 6 6 6" x="170">
+        <List width="180">
+            <AutoVariable width="fill" target="navbot.hvh.enable" label="Enable HVH mode" tooltip="Makes the bot play like a HvH player"/>
+            <LabeledObject width="fill" label="HVH mode">
+                <Select target="navbot.hvh.mode">
+                    <Option name="Aggressive" value="1"/>
+                    <Option name="Defensive" value="2"/>
+                </Select>
+            </LabeledObject>
+            <AutoVariable width="fill" target="navbot.hvh.bhop-to-target" label="Bhop to target" tooltip="Use bunnyhopping to reach distant targets faster"/>
+            <AutoVariable width="fill" target="navbot.hvh.bhop-target-distance" label="Bhop distance" tooltip="Distance at which bot will start bunnyhopping to target"/>
+            <AutoVariable width="fill" target="navbot.hvh.safe-peek" label="Safe peeking" tooltip="Don't expose real hitbox immediately when peeking"/>
+            <AutoVariable width="fill" target="navbot.hvh.prefer-highground" label="Prefer highground" tooltip="Try to maintain height advantage over enemies"/>
+            <AutoVariable width="fill" target="navbot.hvh.ignore-objectives" label="Ignore objectives" tooltip="Focus on killing enemies instead of objectives"/>
+        </List>
+    </Box>
+    <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="370">
+        <List width="150">
+            <AutoVariable width="fill" target="chargeaim.enable" label="Enabled" tooltip="Makes your demoman charge automatically go towards the enemy. Only active when key is held, and does not trigger the charge itself."/>
+            <AutoVariable width="fill" target="chargeaim.key" label="Key to hold"/>
+        </List>
+    </Box>
+</Tab> 

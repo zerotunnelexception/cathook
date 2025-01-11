@@ -28,6 +28,12 @@
 #include <memory>
 #include <boost/container_hash/hash.hpp>
 
+// Helper function to evaluate highground advantage
+static float GetHeightAdvantage(const Vector &pos, const Vector &target_pos)
+{
+    return pos.z - target_pos.z;
+}
+
 namespace navparser
 {
 static settings::Boolean enabled("nav.enabled", "false");
@@ -35,6 +41,8 @@ static settings::Boolean draw("nav.draw", "false");
 static settings::Boolean look{ "nav.look-at-path", "false" };
 static settings::Boolean draw_debug_areas("nav.draw.debug-areas", "false");
 static settings::Boolean log_pathing{ "nav.log", "false" };
+static settings::Boolean nojumppaths{ "nav.nojumppaths", "false" };
+static settings::Boolean safepathing{ "nav.safepathing", "false" };
 static settings::Int stuck_time{ "nav.stuck-time", "800" };
 static settings::Int vischeck_cache_time{ "nav.vischeck-cache.time", "240" };
 static settings::Boolean vischeck_runtime{ "nav.vischeck-runtime.enabled", "true" };
@@ -45,6 +53,57 @@ static settings::Int stuck_expire_time{ "nav.anti-stuck.expire-time", "10" };
 // How long we should blacklist the node after being stuck for too long?
 static settings::Int stuck_blacklist_time{ "nav.anti-stuck.blacklist-time", "120" };
 static settings::Int sticky_ignore_time{ "nav.ignore.sticky-time", "15" };
+
+// HVH mode settings
+static settings::Boolean hvh_enabled{ "navbot.hvh.enable", "false" };
+static settings::Int hvh_mode{ "navbot.hvh.mode", "1" };  // 1 = Aggressive, 2 = Defensive
+static settings::Boolean hvh_bhop_to_target{ "navbot.hvh.bhop-to-target", "false" };
+static settings::Boolean hvh_safe_peek{ "navbot.hvh.safe-peek", "false" };
+static settings::Boolean hvh_ignore_objectives{ "navbot.hvh.ignore-objectives", "false" };
+static settings::Boolean hvh_prefer_highground{ "navbot.hvh.prefer-highground", "false" };
+static settings::Int bhop_target_distance{ "navbot.hvh.bhop-target-distance", "2000" };
+
+// Helper function to check if a point is safe (away from edges)
+static bool IsSafePosition(const Vector &pos, CNavArea *area)
+{
+    if (!area)
+        return false;
+        
+    // If this is a stairway, we want to be more lenient with positioning
+    bool is_stairs = area->m_attributeFlags & NAV_MESH_STAIRS;
+    
+    // Get area bounds
+    float x_min = area->m_nwCorner.x;
+    float x_max = area->m_seCorner.x;
+    float y_min = area->m_nwCorner.y;
+    float y_max = area->m_seCorner.y;
+    
+    // Calculate distances from edges
+    float dist_x = (std::min)(pos.x - x_min, x_max - pos.x);
+    float dist_y = (std::min)(pos.y - y_min, y_max - pos.y);
+    
+    // For stairs, we want to be more lenient with the safe distance
+    float safe_distance = is_stairs ? 10.0f : 20.0f;
+    
+    // For stairs, we want to check if we're following the stair direction
+    if (is_stairs)
+    {
+        // Get the direction of the stairs by checking the height difference
+        Vector stair_dir = area->m_seCorner - area->m_nwCorner;
+        stair_dir.NormalizeInPlace();
+        
+        // Get our position relative to the nav area center
+        Vector pos_relative = pos - area->m_center;
+        pos_relative.NormalizeInPlace();
+        
+        // If we're roughly following the stair direction, consider it safer
+        float alignment = std::abs(stair_dir.Dot(pos_relative));
+        if (alignment > 0.7f)
+            return true;
+    }
+    
+    return dist_x >= safe_distance && dist_y >= safe_distance;
+}
 
 // Cast a Ray and return if it hit
 static bool CastRay(Vector origin, Vector endpos, unsigned mask, ITraceFilter *filter)
@@ -254,6 +313,42 @@ public:
                 if (cached->second.vischeck_state)
                 {
                     float cost = connection.area->m_center.DistTo(area.m_center);
+                    
+                    // If nojumppaths is enabled and this connection requires jumping, increase the cost
+                    if (*nojumppaths && height_diff > 0.1f)
+                        cost *= 2.5f;
+                        
+                    // If safepathing is enabled, check if the path points are safe
+                    if (*safepathing)
+                    {
+                        bool is_safe = IsSafePosition(points.center, &area) && 
+                                     IsSafePosition(points.next, connection.area);
+                        bool is_stairs = (area.m_attributeFlags & NAV_MESH_STAIRS) || 
+                                       (connection.area->m_attributeFlags & NAV_MESH_STAIRS);
+                                       
+                        // If this is a stair connection, reduce the cost penalty
+                        if (!is_safe)
+                            cost *= is_stairs ? 1.5f : 2.0f;
+                    }
+                    
+                    // If HVH mode is enabled and we prefer highground, adjust cost based on height
+                    if (*hvh_enabled && *hvh_prefer_highground)
+                    {
+                        auto current_target = hacks::shared::aimbot::CurrentTarget();
+                        if (current_target)
+                        {
+                            float height_advantage = GetHeightAdvantage(connection.area->m_center, current_target->m_vecOrigin());
+                            // Reduce cost for positions that give height advantage
+                            if (height_advantage > 100.0f)
+                                cost *= 0.5f;  // Significantly prefer high ground
+                            else if (height_advantage > 50.0f)
+                                cost *= 0.75f;  // Moderately prefer high ground
+                            // Increase cost for positions that put us at a height disadvantage
+                            else if (height_advantage < -50.0f)
+                                cost *= 1.5f;  // Avoid low ground
+                        }
+                    }
+                    
                     adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
                 }
             }
@@ -265,6 +360,23 @@ public:
                     vischeck_cache[key] = { TICKCOUNT_TIMESTAMP(60), true };
 
                     float cost = points.next.DistTo(points.current);
+                    // If nojumppaths is enabled and this connection requires jumping, increase the cost
+                    if (*nojumppaths && height_diff > 0.1f)
+                        cost *= 2.5f;  // Make jumping paths cost more to encourage finding non-jumping paths
+                        
+                    // If safepathing is enabled, check if the path points are safe
+                    if (*safepathing)
+                    {
+                        bool is_safe = IsSafePosition(points.center, &area) && 
+                                     IsSafePosition(points.next, connection.area);
+                        bool is_stairs = (area.m_attributeFlags & NAV_MESH_STAIRS) || 
+                                       (connection.area->m_attributeFlags & NAV_MESH_STAIRS);
+                                       
+                        // If this is a stair connection, reduce the cost penalty
+                        if (!is_safe)
+                            cost *= is_stairs ? 1.5f : 2.0f;
+                    }
+                    
                     adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
                 }
                 else
@@ -862,6 +974,319 @@ void updateStuckTime()
     }
 }
 
+// Helper function to check visibility to target
+static bool HasVisibilityToTarget(CachedEntity* target)
+{
+    if (!target)
+        return false;
+        
+    trace_t trace;
+    Ray_t ray;
+    Vector eye = g_pLocalPlayer->v_Eye;
+    ray.Init(eye, target->m_vecOrigin());
+    g_ITrace->TraceRay(ray, MASK_SHOT_HULL, &trace::filter_default, &trace);
+    
+    return (trace.fraction > 0.99f);
+}
+
+// Helper function to find nearest cover point
+static Vector FindNearestCover(const Vector& from, const Vector& threat)
+{
+    Vector best_pos;
+    float best_dist = FLT_MAX;
+    
+    // Check nearby nav areas for potential cover
+    for (auto& area : map->navfile.m_areas)
+    {
+        // Skip areas that are too far
+        if (area.m_center.DistTo(from) > 1000.0f)
+            continue;
+            
+        // Check if this area provides cover from the threat
+        trace_t trace;
+        Ray_t ray;
+        ray.Init(threat, area.m_center);
+        g_ITrace->TraceRay(ray, MASK_SHOT_HULL, &trace::filter_default, &trace);
+        
+        if (trace.fraction < 0.99f)  // This area is behind cover
+        {
+            float dist = area.m_center.DistTo(from);
+            if (dist < best_dist)
+            {
+                best_dist = dist;
+                best_pos = area.m_center;
+            }
+        }
+    }
+    
+    return best_pos;
+}
+
+// Helper function to check if we should bhop to target
+static bool ShouldBhopToTarget()
+{
+    if (!*hvh_bhop_to_target)
+        return false;
+        
+    static bool was_bhopping = false;
+    static Vector last_velocity;
+    static Timer velocity_check{};
+    
+    Vector current_velocity;
+    velocity::EstimateAbsVelocity(RAW_ENT(LOCAL_E), current_velocity);
+    
+    // Check if we're stuck or lost too much speed
+    if (was_bhopping)
+    {
+        float velocity_2d = current_velocity.Length2D();
+        if (velocity_2d < 200.0f)  // Speed too low, stop bhopping and build up speed again
+        {
+            was_bhopping = false;
+            return false;
+        }
+    }
+    
+    // Don't interrupt important actions
+    if (CE_INT(LOCAL_E, netvar.iFlags) & FL_DUCKING || 
+        !(CE_INT(LOCAL_E, netvar.iFlags) & FL_ONGROUND))
+        return was_bhopping;
+        
+    auto current_target = hacks::shared::aimbot::CurrentTarget();
+    
+    // If we have a target, only bhop when:
+    // 1. Target is far away (>bhop_target_distance units)
+    // 2. AND we DON'T have visibility
+    if (current_target)
+    {
+        float target_distance = g_pLocalPlayer->v_Origin.DistTo(current_target->m_vecOrigin());
+        if (target_distance > *bhop_target_distance && !HasVisibilityToTarget(current_target))
+        {
+            // Start bhopping only when we have some initial speed
+            if (!was_bhopping)
+            {
+                if (current_velocity.Length2D() > 250.0f)
+                {
+                    was_bhopping = true;
+                    return true;
+                }
+                // Build up speed by running forward
+                current_user_cmd->forwardmove = 450.0f;
+                return false;
+            }
+            return true;
+        }
+        was_bhopping = false;
+        return false;
+    }
+    
+    // No target - check if we should bhop
+    // Only bhop if we have enough speed or were already bhopping
+    if (!was_bhopping && current_velocity.Length2D() < 250.0f)
+    {
+        current_user_cmd->forwardmove = 450.0f;
+        return false;
+    }
+    
+    was_bhopping = true;
+    return true;
+}
+
+// Helper function to evaluate position quality
+static float EvaluatePosition(const Vector &pos, const Vector &target_pos, CNavArea *area)
+{
+    if (!area)
+        return -1000.0f;
+        
+    float score = 0.0f;
+    
+    // Base score on distance to target
+    float distance = pos.DistTo(target_pos);
+    
+    // Get ideal distance based on weapon and class
+    float ideal_distance = 800.0f;  // Default
+    if (CE_GOOD(LOCAL_W))
+    {
+        if (LOCAL_W->m_iClassID() == CL_CLASS(CTFKnife))
+            ideal_distance = 100.0f;
+        else if (LOCAL_W->m_iClassID() == CL_CLASS(CTFScatterGun))
+            ideal_distance = 300.0f;
+        else if (g_pLocalPlayer->clazz == tf_sniper)
+            ideal_distance = 800.0f;
+        else if (g_pLocalPlayer->clazz == tf_heavy)
+            ideal_distance = 450.0f;
+    }
+    
+    // Score based on how close we are to ideal distance
+    float distance_score = -(std::abs(distance - ideal_distance) / 100.0f);
+    score += distance_score;
+    
+    // Height advantage bonus (smaller bonus than before)
+    float height_advantage = pos.z - target_pos.z;
+    if (height_advantage > 0)
+        score += ((std::min)(height_advantage, 200.0f) / 200.0f) * 30.0f;  // Max 30 points for height
+        
+    // Objective proximity bonus
+    if (area->m_attributeFlags & (1 << 17))  // NAV_MESH_CAPTURE_POINT
+    {
+        // If we're a combat class or in HVH mode, give less weight to objectives
+        if (*hvh_enabled || g_pLocalPlayer->clazz == tf_sniper || g_pLocalPlayer->clazz == tf_spy)
+            score += 20.0f;
+        else
+            score += 50.0f;  // Big bonus for being near objective
+    }
+    
+    // Line of sight bonus
+    Vector eye = pos;
+    eye.z += 41.5f; // Approximate eye position
+    if (IsVectorVisible(eye, target_pos))
+        score += 40.0f;  // Significant bonus for having line of sight
+        
+    // Cover availability bonus
+    trace_t trace;
+    for (int i = 0; i < 8; i++)  // Check 8 directions
+    {
+        float angle = (float)i * (360.0f / 8.0f);
+        Vector check = pos + Vector(cos(angle) * 100.0f, sin(angle) * 100.0f, 0);
+        Ray_t ray;
+        ray.Init(pos, check);
+        g_ITrace->TraceRay(ray, MASK_SOLID, &trace::filter_default, &trace);
+        if (trace.fraction < 1.0f)
+            score += 5.0f;  // Small bonus for each direction that has cover
+    }
+    
+    return score;
+}
+
+// Helper function to find best position
+static Vector FindBestPosition(const Vector &target_pos)
+{
+    Vector best_pos;
+    float best_score = -1000.0f;
+    
+    // Search radius depends on distance to target
+    float search_radius = g_pLocalPlayer->v_Origin.DistTo(target_pos);
+    search_radius = (std::min)((std::max)(search_radius, 500.0f), 2000.0f);
+    
+    for (auto &area : map->navfile.m_areas)
+    {
+        // Skip areas that are too far from both us and target
+        if (area.m_center.DistTo(g_pLocalPlayer->v_Origin) > search_radius && 
+            area.m_center.DistTo(target_pos) > search_radius)
+            continue;
+            
+        // Skip blacklisted areas
+        bool is_blacklisted = false;
+        for (auto const &entry : map->free_blacklist)
+        {
+            if (entry.first == &area)
+            {
+                is_blacklisted = true;
+                break;
+            }
+        }
+        if (is_blacklisted)
+            continue;
+            
+        float score = EvaluatePosition(area.m_center, target_pos, &area);
+        if (score > best_score)
+        {
+            best_score = score;
+            best_pos = area.m_center;
+        }
+    }
+    
+    return best_pos;
+}
+
+// Helper function to handle HVH movement
+static void HandleHvhMovement()
+{
+    if (!*hvh_enabled)
+        return;
+        
+    auto current_target = hacks::shared::aimbot::CurrentTarget();
+    if (!current_target)
+        return;
+        
+    // Find best position to move to
+    Vector best_pos = FindBestPosition(current_target->m_vecOrigin());
+    if (!best_pos.IsZero())
+    {
+        navparser::NavEngine::navTo(best_pos, true, true);
+        return;
+    }
+    
+    // Fallback to basic movement if we couldn't find a good position
+    float current_distance = g_pLocalPlayer->v_Origin.DistTo(current_target->m_vecOrigin());
+    float ideal_distance = 800.0f;
+    
+    if (CE_GOOD(LOCAL_W))
+    {
+        if (LOCAL_W->m_iClassID() == CL_CLASS(CTFKnife))
+            ideal_distance = 100.0f;
+        else if (LOCAL_W->m_iClassID() == CL_CLASS(CTFScatterGun))
+            ideal_distance = 300.0f;
+        else if (g_pLocalPlayer->clazz == tf_sniper)
+            ideal_distance = 800.0f;
+        else if (g_pLocalPlayer->clazz == tf_heavy)
+            ideal_distance = 450.0f;
+    }
+    
+    if (current_distance > ideal_distance * 1.2f)
+        current_user_cmd->forwardmove = 450.0f;
+    else if (current_distance < ideal_distance * 0.8f)
+        current_user_cmd->forwardmove = -450.0f;
+}
+
+// Helper function to handle safe peeking
+static void HandleSafePeeking()
+{
+    if (!*hvh_safe_peek)
+        return;
+        
+    auto current_target = hacks::shared::aimbot::CurrentTarget();
+    if (!current_target)
+        return;
+        
+    static Timer peek_timer{};
+    static bool is_peeking = false;
+    static Vector peek_pos = g_pLocalPlayer->v_Origin;
+    
+    // Get direction to target
+    Vector to_target = current_target->m_vecOrigin() - g_pLocalPlayer->v_Origin;
+    to_target.z = 0;
+    to_target.NormalizeInPlace();
+    
+    if (!is_peeking)
+    {
+        // Store our position when we start peeking
+        if (peek_timer.check(1000))  // Wait between peeks
+        {
+            peek_pos = g_pLocalPlayer->v_Origin;
+            is_peeking = true;
+            peek_timer.update();
+        }
+    }
+    else
+    {
+        if (peek_timer.check(150))  // Quick peek duration
+        {
+            is_peeking = false;
+            peek_timer.update();
+            
+            // Return to safe position
+            Vector retreat_pos = peek_pos - to_target * 100.0f;
+            navparser::NavEngine::navTo(retreat_pos, true, true);
+        }
+        else
+        {
+            // Move forward during peek
+            Vector peek_target = peek_pos + to_target * 100.0f;
+            navparser::NavEngine::navTo(peek_target, true, true);
+        }
+    }
+}
+
 static void CreateMove()
 {
     if (!isReady())
@@ -871,16 +1296,47 @@ static void CreateMove()
         cancelPath();
         return;
     }
-    round_states round_state = g_pTeamRoundTimer->GetRoundState();
-    // Still in setuptime, if on fitting team, then do not path yet
-    // F you Pipeline
-    if (round_state == RT_STATE_SETUP && GetLevelName() != "plr_pipeline" && g_pLocalPlayer->team == TEAM_BLU)
+
+    // If HVH mode is enabled, override certain behaviors
+    if (*hvh_enabled)
     {
-        if (navparser::NavEngine::isPathing())
-            navparser::NavEngine::cancelPath();
-        return;
+        // Force disable certain options that conflict with HVH mode
+        look = false;  // Don't look at path in HVH mode
+        
+        // Handle bunnyhopping - only when we should bhop to target
+        if (ShouldBhopToTarget())
+        {
+            // Enable bunnyhop
+            if (CE_INT(LOCAL_E, netvar.iFlags) & FL_ONGROUND)
+            {
+                current_user_cmd->buttons |= IN_JUMP;
+                // Use directional autostrafe
+                current_user_cmd->forwardmove = 450.0f;
+                if (current_user_cmd->mousedx > 1)
+                    current_user_cmd->sidemove = 450.0f;
+                else if (current_user_cmd->mousedx < -1)
+                    current_user_cmd->sidemove = -450.0f;
+            }
+        }
+        
+        // Handle HVH movement and peeking
+        HandleHvhMovement();
+        HandleSafePeeking();
+        
+        // If we're in HVH mode and have ignore_objectives enabled, don't path to objectives
+        if (*hvh_ignore_objectives)
+        {
+            if (crumbs.size() > 0 && crumbs.back().navarea && 
+                (crumbs.back().navarea->m_attributeFlags & (1 << 17) ||  // NAV_MESH_CAPTURE_POINT
+                 crumbs.back().navarea->m_attributeFlags & (1 << 18)))   // NAV_MESH_DEFEND_POINT
+            {
+                cancelPath();
+                return;
+            }
+        }
     }
 
+    // Continue with normal navparser logic
     if (vischeck_runtime)
         vischeckPath();
     checkBlacklist();
