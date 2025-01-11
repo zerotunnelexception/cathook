@@ -21,7 +21,7 @@ and a lot of useful features, including
 * Automatic matchmaking
 * And many more features!
 
-[FULL LIST OF FEATURES HERE](https://pastebin.com/p8rGByHT)
+[FULL LIST OF FEATURES HERE](https://pastebin.com/wAjwFnDK)
 
 # Installing, updating, attaching (injecting)
 

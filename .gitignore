@@ -297,3 +297,6 @@ scripts/updater-preferences
 src/Amalgam/
 
 _deps/
+
+# Feature list
+featurelist.txt
