@@ -1,10 +1,6 @@
 # Cathook Training Software
 ![banner](https://user-images.githubusercontent.com/13179138/134817300-d4865695-af33-4e83-a017-5ec0d31ea0a1.png)
 
-## Risk of VAC detection
-
-The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned.
-
 ## Overview
 
 Cathook is a training software designed for Team Fortress 2 for Linux. Cathook includes some joke features like
@@ -41,3 +37,7 @@ If some things doesn't work as expected, please open issues on GitHub using [thi
 ## Contributing
 
 Do you want to submit code to cathook? Please read `CONTRIBUTING.md` for a short introduction.
+
+## Risk of VAC detection
+
+The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned.
