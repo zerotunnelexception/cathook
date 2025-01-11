@@ -28,7 +28,10 @@ and a lot of useful features, including
 [View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q) <-- outdated 
 
 ## Community
-ill make later 
+
+Join our Telegram groups:
+- [Chat](https://t.me/cathookcom)
+- [Announcements](https://t.me/cathookmel)
 
 ## Reporting Issues
 
