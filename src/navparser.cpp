@@ -1448,7 +1448,7 @@ static void CreateMove()
         // Handle HVH movement, peeking and fake peeking
         HandleHvhMovement();
         HandleSafePeeking();
-        HandleFakePeeking();  // Add fake peek handling
+        HandleFakePeeking();  
         
         // If we're in HVH mode and have ignore_objectives enabled, don't path to objectives
         if (*hvh_ignore_objectives)
