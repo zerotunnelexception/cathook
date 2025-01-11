@@ -51,8 +51,8 @@
             <AutoVariable width="fill" target="navbot.hvh.ignore-objectives" label="Ignore objectives" tooltip="Focus on killing enemies instead of objectives"/>
         </List>
     </Box>
-    <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="170" y="165">
-        <List width="150">
+    <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="170" y="128">
+        <List width="180">
             <AutoVariable width="fill" target="chargeaim.enable" label="Enabled" tooltip="Makes your demoman charge automatically go towards the enemy. Only active when key is held, and does not trigger the charge itself."/>
             <AutoVariable width="fill" target="chargeaim.key" label="Key to hold"/>
         </List>
