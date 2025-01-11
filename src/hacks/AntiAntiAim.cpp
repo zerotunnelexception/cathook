@@ -16,6 +16,14 @@ static settings::Int min_hits{ "anti-anti-aim.resolver.min-hits", "2" };
 boost::unordered_flat_map<unsigned, brutedata> resolver_map;
 std::array<CachedEntity *, 32> sniperdot_array;
 
+// Add resolver data structure
+struct PlayerResolverData {
+    bool resolved;
+    float resolved_yaw;
+    PlayerResolverData() : resolved(false), resolved_yaw(0.0f) {}
+};
+static std::array<PlayerResolverData, MAX_PLAYERS> player_resolver_data;
+
 static inline void modifyAngles()
 {
     for (auto const &player : entity_cache::player_cache)
@@ -326,4 +334,85 @@ static InitRoutine init(
         EC::Register(EC::CreateMoveWarp, modifyAngles, "cmw_textmodeantiantiaim");
 #endif
     });
+
+static float NormalizeAngle(float angle) {
+    while (angle > 180.0f) angle -= 360.0f;
+    while (angle < -180.0f) angle += 360.0f;
+    return angle;
+}
+
+
+void UpdateResolver(int ent_idx, CachedEntity* player) {
+    if (!player || !g_IEngine->IsInGame())
+        return;
+
+    static std::array<float, MAX_PLAYERS> last_yaw{};
+    static std::array<float, MAX_PLAYERS> prev_yaw{};
+    static std::array<int, MAX_PLAYERS> jitter_samples{};
+    static std::array<float, MAX_PLAYERS> jitter_delta{};
+    static std::array<Timer, MAX_PLAYERS> update_timer{};
+
+    float eye_yaw = CE_VECTOR(player, netvar.m_angEyeAngles).y;
+    float eye_pitch = CE_VECTOR(player, netvar.m_angEyeAngles).x;
+
+    if (std::isnan(eye_yaw) || std::isnan(eye_pitch))
+        return;
+
+    if (update_timer[ent_idx].check(50)) {
+        float delta = std::abs(eye_yaw - last_yaw[ent_idx]);
+        delta = NormalizeAngle(delta);
+
+        if (std::abs(delta) > 30.0f) {
+            jitter_samples[ent_idx]++;
+            jitter_delta[ent_idx] = delta;
+
+            if (jitter_samples[ent_idx] >= 3) {
+                float avg_delta = jitter_delta[ent_idx] / jitter_samples[ent_idx];
+                float predicted_yaw = eye_yaw;
+                if (std::abs(eye_yaw - prev_yaw[ent_idx]) < 10.0f)
+                    predicted_yaw += avg_delta;
+
+                player_resolver_data[ent_idx].resolved_yaw = predicted_yaw;
+                player_resolver_data[ent_idx].resolved = true;
+            }
+        }
+
+        prev_yaw[ent_idx] = last_yaw[ent_idx];
+        last_yaw[ent_idx] = eye_yaw;
+        update_timer[ent_idx].update();
+    }
+
+    if (jitter_samples[ent_idx] < 3) {
+        float velocity_yaw = 0.0f;
+        if (CE_VALID(player)) {
+            Vector velocity;
+            velocity::EstimateAbsVelocity(RAW_ENT(player), velocity);
+            if (!velocity.IsZero()) {
+                QAngle angle;
+                VectorAngles(velocity, angle);
+                velocity_yaw = angle.y;
+            }
+        }
+
+        if (std::abs(eye_yaw - velocity_yaw) > 150.0f) {
+            player_resolver_data[ent_idx].resolved_yaw = velocity_yaw;
+            player_resolver_data[ent_idx].resolved = true;
+            return;
+        }
+
+        float delta_from_90 = std::abs(std::fmod(std::abs(eye_yaw - velocity_yaw), 90.0f));
+        if (delta_from_90 < 15.0f) {
+            player_resolver_data[ent_idx].resolved_yaw = velocity_yaw + 90.0f;
+            player_resolver_data[ent_idx].resolved = true;
+            return;
+        }
+    }
+
+    static Timer reset_timer{};
+    if (reset_timer.check(5000)) {
+        for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+            jitter_samples[i] = 0;
+        reset_timer.update();
+    }
+}
 } // namespace hacks::shared::anti_anti_aim

@@ -55,4 +55,5 @@ bool isHitboxMedium(int hitbox);
 int ClosestHitbox(CachedEntity *target);
 void DoSlowAim(Vector &inputAngle);
 bool UpdateAimkey();
+Vector CalculateAimAngles(const Vector& eyePosition, const Vector& targetPosition, CachedEntity* localEntity);
 } // namespace hacks::shared::aimbot

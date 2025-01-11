@@ -1325,6 +1325,94 @@ static void HandleSafePeeking()
     }
 }
 
+// Helper function to handle fake peeking
+static void HandleFakePeeking()
+{
+    if (!*hvh_enabled)
+        return;
+        
+    static Timer peek_timer{};
+    static bool is_fake_peeking = false;
+    static Vector peek_pos = g_pLocalPlayer->v_Origin;
+    static Vector last_safe_pos = g_pLocalPlayer->v_Origin;
+    static int peek_count = 0;
+    static Timer reset_peeks{};
+    
+    // Reset peek count periodically to avoid getting too predictable
+    if (reset_peeks.check(5000))
+    {
+        peek_count = 0;
+        reset_peeks.update();
+    }
+    
+    // Check for enemies that might be waiting to peek
+    bool enemy_near = false;
+    Vector enemy_pos;
+    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    {
+        CachedEntity* ent = ENTITY(i);
+        if (CE_BAD(ent) || !ent->m_bAlivePlayer() || ent->m_iTeam() == g_pLocalPlayer->team)
+            continue;
+            
+        // Check if enemy is close but not visible (potentially behind wall)
+        float distance = g_pLocalPlayer->v_Origin.DistTo(ent->m_vecOrigin());
+        if (distance < 1000.0f && !HasVisibilityToTarget(ent))
+        {
+            enemy_near = true;
+            enemy_pos = ent->m_vecOrigin();
+            break;
+        }
+    }
+    
+    if (!enemy_near)
+    {
+        is_fake_peeking = false;
+        return;
+    }
+    
+    if (!is_fake_peeking)
+    {
+        // Find a good position to peek from
+        Vector to_enemy = enemy_pos - g_pLocalPlayer->v_Origin;
+        to_enemy.z = 0;
+        to_enemy.NormalizeInPlace();
+        
+        // Store our current safe position
+        last_safe_pos = g_pLocalPlayer->v_Origin;
+        
+        // Find nearest cover to peek from
+        peek_pos = FindNearestCover(g_pLocalPlayer->v_Origin, enemy_pos);
+        if (!peek_pos.IsZero())
+        {
+            is_fake_peeking = true;
+            peek_timer.update();
+            peek_count++;
+        }
+    }
+    else
+    {
+        // Vary peek duration based on count to be less predictable
+        int peek_duration = 100;  // Very short peek
+        if (peek_count > 2)
+            peek_duration = 50;  // Even shorter to bait a shot
+            
+        if (peek_timer.check(peek_duration))
+        {
+            is_fake_peeking = false;
+            peek_timer.update();
+            
+            // Return to safe position
+            navparser::NavEngine::navTo(last_safe_pos, true, true);
+        }
+        else
+        {
+            // Do a very slight peek
+            Vector peek_target = peek_pos + (enemy_pos - peek_pos).Normalized() * 20.0f;
+            navparser::NavEngine::navTo(peek_target, true, true);
+        }
+    }
+}
+
 static void CreateMove()
 {
     if (!isReady())
@@ -1357,9 +1445,10 @@ static void CreateMove()
             }
         }
         
-        // Handle HVH movement and peeking
+        // Handle HVH movement, peeking and fake peeking
         HandleHvhMovement();
         HandleSafePeeking();
+        HandleFakePeeking();  // Add fake peek handling
         
         // If we're in HVH mode and have ignore_objectives enabled, don't path to objectives
         if (*hvh_ignore_objectives)

@@ -1164,7 +1164,7 @@ AimbotTarget_t GetTarget(CachedEntity *entity)
             }
         }
 
-        Vector angles = GetAimAtAngles(g_pLocalPlayer->v_Eye, is_it_good, LOCAL_E);
+        Vector angles = CalculateAimAngles(g_pLocalPlayer->v_Eye, is_it_good, LOCAL_E);
 
         if (projectileAimbotRequired) // unfortunately you have to check this twice, otherwise you'd have to run GetAimAtAngles far too early
         {
@@ -1239,7 +1239,7 @@ bool Aim(AimbotTarget_t target)
         return true;
 
     // Get angles from eye to target
-    Vector angles = GetAimAtAngles(g_pLocalPlayer->v_Eye, target.aim_position, LOCAL_E);
+    Vector angles = CalculateAimAngles(g_pLocalPlayer->v_Eye, target.aim_position, LOCAL_E);
     // Slow aim
     if (slow_aim)
         DoSlowAim(angles);
@@ -1562,29 +1562,18 @@ int ClosestHitbox(CachedEntity *target)
 // angle, effectively slowing the aiming process
 void DoSlowAim(Vector &input_angle)
 {
-    auto viewangles   = current_user_cmd->viewangles;
-    Vector slow_delta = { 0, 0, 0 };
+    auto viewangles = current_user_cmd->viewangles;
+    Vector slow_delta = input_angle - viewangles;
 
-    // Don't bother if we're already on target
-    if (viewangles != input_angle)
-    {
-        slow_delta = input_angle - viewangles;
+    while (slow_delta.y > 180) slow_delta.y -= 360;
+    while (slow_delta.y < -180) slow_delta.y += 360;
 
-        while (slow_delta.y > 180)
-            slow_delta.y -= 360;
-        while (slow_delta.y < -180)
-            slow_delta.y += 360;
+    slow_delta /= slow_aim;
+    input_angle = viewangles + slow_delta;
 
-        slow_delta /= slow_aim;
-        input_angle = viewangles + slow_delta;
+    fClampAngle(input_angle);
 
-        // Clamp as we changed angles
-        fClampAngle(input_angle);
-    }
-    // 0.17 is a good amount in general
-    slow_can_shoot = false;
-    if (std::abs(slow_delta.y) < 0.17 && std::abs(slow_delta.x) < 0.17)
-        slow_can_shoot = true;
+    slow_can_shoot = (std::abs(slow_delta.y) < 0.1 && std::abs(slow_delta.x) < 0.1);
 }
 
 // A function that determins whether aimkey allows aiming
@@ -1720,5 +1709,27 @@ static InitRoutine EC(
         EC::Register(EC::Draw, DrawText, "DRAW_Aimbot", EC::average);
 #endif
     });
+
+// Enhance aim calculation for better accuracy
+Vector CalculateAimAngles(const Vector& eyePosition, const Vector& targetPosition, CachedEntity* localEntity) {
+    Vector delta = targetPosition - eyePosition;
+    float hyp = sqrt(delta.x * delta.x + delta.y * delta.y);
+    Vector angles;
+    angles.x = atan2(-delta.z, hyp) * (180.0f / M_PI);
+    angles.y = atan2(delta.y, delta.x) * (180.0f / M_PI);
+    angles.z = 0.0f;
+    return angles;
+}
+
+// Improve prediction logic for moving targets
+Vector PredictEntityPosition(CachedEntity* target, float projectileSpeed, float projectileGravity) {
+    Vector predictedPosition = target->m_vecOrigin();
+    Vector velocity;
+    velocity::EstimateAbsVelocity(RAW_ENT(target), velocity);
+    float time = target->m_flDistance() / projectileSpeed;
+    predictedPosition += velocity * time;
+    predictedPosition.z += 0.5f * projectileGravity * time * time;
+    return predictedPosition;
+}
 
 } // namespace hacks::shared::aimbot
