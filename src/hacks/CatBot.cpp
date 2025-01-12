@@ -513,6 +513,8 @@ CatBotEventListener &listener()
     return object;
 }*/
 
+static Timer timer_abandon{};
+
 class CatBotEventListener2 : public IGameEventListener2
 {
     void FireGameEvent(IGameEvent *) override
@@ -520,6 +522,7 @@ class CatBotEventListener2 : public IGameEventListener2
         // vote for current map if catbot mode and autovote is on
         if (catbotmode && autovote_map)
             g_IEngine->ServerCmd("next_map_vote 0");
+            timer_abandon.update();
     }
 };
 
@@ -531,7 +534,6 @@ CatBotEventListener2 &listener2()
 
 Timer timer_votekicks{};
 static Timer timer_catbot_list{};
-static Timer timer_abandon{};
 
 static int count_ipc = 0;
 static std::vector<unsigned> ipc_list{ 0 };

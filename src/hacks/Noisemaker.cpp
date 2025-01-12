@@ -10,23 +10,23 @@
 
 namespace hacks::tf2::noisemaker
 {
-
-// Merry Christmas
-#if ENABLE_TEXTMODE
-static settings::Boolean enable{ "noisemaker-spam.enable", "true" };
-#else
+#if !ENABLE_TEXTMODE
 static settings::Boolean enable{ "noisemaker-spam.enable", "false" };
+#else
+static settings::Boolean enable{ "noisemaker-spam.enable", "true" };
 #endif
+
+static Timer timer{};
 
 static void CreateMove()
 {
     if (enable && CE_GOOD(LOCAL_E))
     {
-        if (g_GlobalVars->framecount % 100 == 0)
+        if (timer.test_and_set(1000))
         {
-            KeyValues *kv = new KeyValues("+use_action_slot_item_server");
+            auto *kv = new KeyValues("+use_action_slot_item_server");
             g_IEngine->ServerCmdKeyValues(kv);
-            KeyValues *kv2 = new KeyValues("-use_action_slot_item_server");
+            auto *kv2 = new KeyValues("-use_action_slot_item_server");
             g_IEngine->ServerCmdKeyValues(kv2);
         }
     }
@@ -37,17 +37,17 @@ FnCommandCallbackVoid_t minus_use_action_slot_item_original;
 
 void plus_use_action_slot_item_hook()
 {
-    KeyValues *kv = new KeyValues("+use_action_slot_item_server");
+    auto *kv = new KeyValues("+use_action_slot_item_server");
     g_IEngine->ServerCmdKeyValues(kv);
 }
 
 void minus_use_action_slot_item_hook()
 {
-    KeyValues *kv = new KeyValues("-use_action_slot_item_server");
+    auto *kv = new KeyValues("-use_action_slot_item_server");
     g_IEngine->ServerCmdKeyValues(kv);
 }
 
-static void init()
+static void Init()
 {
     auto plus  = g_ICvar->FindCommand("+use_action_slot_item");
     auto minus = g_ICvar->FindCommand("-use_action_slot_item");
@@ -58,7 +58,8 @@ static void init()
     plus->m_fnCommandCallbackV1         = plus_use_action_slot_item_hook;
     minus->m_fnCommandCallbackV1        = minus_use_action_slot_item_hook;
 }
-static void shutdown()
+
+static void Shutdown()
 {
     auto plus  = g_ICvar->FindCommand("+use_action_slot_item");
     auto minus = g_ICvar->FindCommand("-use_action_slot_item");
@@ -67,9 +68,11 @@ static void shutdown()
     plus->m_fnCommandCallbackV1  = plus_use_action_slot_item_original;
     minus->m_fnCommandCallbackV1 = minus_use_action_slot_item_original;
 }
-static InitRoutine EC([]() {
-    init();
-    EC::Register(EC::CreateMove, CreateMove, "Noisemaker", EC::average);
-    EC::Register(EC::Shutdown, shutdown, "Noisemaker", EC::average);
-});
-} // namespace hacks::tf2::noisemaker
+static InitRoutine EC(
+    []()
+    {
+        Init();
+        EC::Register(EC::CreateMove, CreateMove, "CM_Noisemaker", EC::average);
+        EC::Register(EC::Shutdown, Shutdown, "SD_Noisemaker", EC::average);
+    });
+} // namespace hacks::noisemaker
