@@ -210,31 +210,42 @@ public:
 // This function ensures that vischeck and pathing use the same logic.
 navPoints determinePoints(CNavArea *current, CNavArea *next)
 {
-    auto area_center = current->m_center;
-    auto next_center = next->m_center;
-    // Gets a vector on the edge of the current area that is as close as possible to the center of the next area
-    auto area_closest = current->getNearestPoint(next_center.AsVector2D());
-    // Do the same for the other area
-    auto next_closest = next->getNearestPoint(area_center.AsVector2D());
-
-    // Use one of them as a center point, the one that is either x or y alligned with a center
-    // Of the areas.
-    // This will avoid walking into walls.
-    auto center_point = area_closest;
-
-    // Determine if alligned, if not, use the other one as the center point
-    if (center_point.x != area_center.x && center_point.y != area_center.y && center_point.x != next_center.x && center_point.y != next_center.y)
+    // Cache centers to avoid repeated member access
+    const Vector &area_center = current->m_center;
+    const Vector &next_center = next->m_center;
+    
+    // Get closest points - only calculate 2D distance since that's what we need
+    Vector2D next_center_2d = next_center.AsVector2D();
+    Vector2D area_center_2d = area_center.AsVector2D();
+    Vector area_closest = current->getNearestPoint(next_center_2d);
+    Vector next_closest = next->getNearestPoint(area_center_2d);
+    
+    // Use area_closest as the default center point
+    Vector center_point = area_closest;
+    
+    // Check alignment with either center - only need to check x and y
+    bool needs_adjustment = true;
+    if (center_point.x == area_center.x || center_point.y == area_center.y || 
+        center_point.x == next_center.x || center_point.y == next_center.y)
+    {
+        needs_adjustment = false;
+    }
+    
+    // Only adjust if needed
+    if (needs_adjustment)
     {
         center_point = next_closest;
         // Use the point closest to next_closest on the "original" mesh for z
-        center_point.z = current->getNearestPoint(next_closest.AsVector2D()).z;
+        Vector2D next_closest_2d = next_closest.AsVector2D();
+        center_point.z = current->getNearestPoint(next_closest_2d).z;
     }
-
-    // Nearest point to center on "next"m used for height checks
-    auto center_next = next->getNearestPoint(center_point.AsVector2D());
-
+    
+    // Get nearest point to center for height checks
+    Vector2D center_point_2d = center_point.AsVector2D();
+    Vector center_next = next->getNearestPoint(center_point_2d);
+    
     return navPoints(area_center, center_point, center_next, next_center);
-};
+}
 
 class Map : public micropather::Graph
 {
@@ -266,20 +277,25 @@ public:
     void AdjacentCost(void *main, std::vector<micropather::StateCost> *adjacent) override
     {
         CNavArea &area = *reinterpret_cast<CNavArea *>(main);
+        
+        // Pre-calculate player height adjustment
+        const float height_with_jump = PLAYER_JUMP_HEIGHT;
+        
+        // Cache local player state if in HVH mode
+        CachedEntity* current_target = nullptr;
+        if (*hvh_enabled && *hvh_prefer_highground)
+            current_target = hacks::shared::aimbot::CurrentTarget();
+        
         for (NavConnect &connection : area.m_connections)
         {
-            // An area being entered twice means it is blacklisted from entry entirely
-            auto connection_key    = std::pair<CNavArea *, CNavArea *>(connection.area, connection.area);
-            auto cached_connection = vischeck_cache.find(connection_key);
-
-            // Entered and marked bad?
-            if (cached_connection != vischeck_cache.end())
-                if (!cached_connection->second.vischeck_state)
-                    continue;
-
-            // If the extern blacklist is running, ensure we don't try to use a bad area
-            bool is_blacklisted = false;
+            // Quick reject for obviously invalid connections
+            if (!connection.area)
+                continue;
+            
+            // Check blacklist first - fastest reject
             if (!free_blacklist_blocked)
+            {
+                bool is_blacklisted = false;
                 for (auto const &entry : free_blacklist)
                 {
                     if (entry.first == connection.area)
@@ -288,102 +304,112 @@ public:
                         break;
                     }
                 }
-            if (is_blacklisted)
-                continue;
+                if (is_blacklisted)
+                    continue;
+            }
 
-            auto points = determinePoints(&area, connection.area);
-
-            // Apply dropdown
-            points.center = handleDropdown(points.center, points.next);
-
-            float height_diff = points.center_next.z - points.center.z;
-
-            // Too high for us to jump!
-            if (height_diff > PLAYER_JUMP_HEIGHT)
-                continue;
-
-            points.current.z += PLAYER_JUMP_HEIGHT;
-            points.center.z += PLAYER_JUMP_HEIGHT;
-            points.next.z += PLAYER_JUMP_HEIGHT;
-
-            auto key    = std::pair<CNavArea *, CNavArea *>(&area, connection.area);
+            // Cache lookup key
+            auto key = std::pair<CNavArea *, CNavArea *>(&area, connection.area);
+            
+            // Check vischeck cache
             auto cached = vischeck_cache.find(key);
             if (cached != vischeck_cache.end())
             {
-                if (cached->second.vischeck_state)
+                if (!cached->second.vischeck_state)
+                    continue;
+                
+                // Calculate base cost once
+                float cost = connection.area->m_center.DistTo(area.m_center);
+                
+                // Apply cost modifiers
+                if (*nojumppaths)
                 {
-                    float cost = connection.area->m_center.DistTo(area.m_center);
-                    
-                    // If nojumppaths is enabled and this connection requires jumping, increase the cost
-                    if (*nojumppaths && height_diff > 0.1f)
+                    float height_diff = connection.area->m_center.z - area.m_center.z;
+                    if (height_diff > 0.1f)
                         cost *= 2.5f;
-                        
-                    // If safepathing is enabled, check if the path points are safe
-                    if (*safepathing)
-                    {
-                        bool is_safe = IsSafePosition(points.center, &area) && 
-                                     IsSafePosition(points.next, connection.area);
-                        bool is_stairs = (area.m_attributeFlags & NAV_MESH_STAIRS) || 
-                                       (connection.area->m_attributeFlags & NAV_MESH_STAIRS);
-                                       
-                        // If this is a stair connection, reduce the cost penalty
-                        if (!is_safe)
-                            cost *= is_stairs ? 1.5f : 2.0f;
-                    }
-                    
-                    // If HVH mode is enabled and we prefer highground, adjust cost based on height
-                    if (*hvh_enabled && *hvh_prefer_highground)
-                    {
-                        auto current_target = hacks::shared::aimbot::CurrentTarget();
-                        if (current_target)
-                        {
-                            float height_advantage = GetHeightAdvantage(connection.area->m_center, current_target->m_vecOrigin());
-                            // Reduce cost for positions that give height advantage
-                            if (height_advantage > 100.0f)
-                                cost *= 0.5f;  // Significantly prefer high ground
-                            else if (height_advantage > 50.0f)
-                                cost *= 0.75f;  // Moderately prefer high ground
-                            // Increase cost for positions that put us at a height disadvantage
-                            else if (height_advantage < -50.0f)
-                                cost *= 1.5f;  // Avoid low ground
-                        }
-                    }
-                    
-                    adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
                 }
+                
+                if (*safepathing)
+                {
+                    auto points = determinePoints(&area, connection.area);
+                    bool is_safe = IsSafePosition(points.center, &area) && 
+                                 IsSafePosition(points.next, connection.area);
+                    bool is_stairs = (area.m_attributeFlags & NAV_MESH_STAIRS) || 
+                                   (connection.area->m_attributeFlags & NAV_MESH_STAIRS);
+                                   
+                    if (!is_safe)
+                        cost *= is_stairs ? 1.5f : 2.0f;
+                }
+                
+                // HVH height advantage calculations - only if we have a target
+                if (current_target)
+                {
+                    float height_advantage = GetHeightAdvantage(connection.area->m_center, current_target->m_vecOrigin());
+                    if (height_advantage > 100.0f)
+                        cost *= 0.5f;
+                    else if (height_advantage > 50.0f)
+                        cost *= 0.75f;
+                    else if (height_advantage < -50.0f)
+                        cost *= 1.5f;
+                }
+                
+                adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
+                continue;
+            }
+            
+            // Need to perform vischeck
+            auto points = determinePoints(&area, connection.area);
+            points.center = handleDropdown(points.center, points.next);
+            
+            // Height check
+            float height_diff = points.center_next.z - points.center.z;
+            if (height_diff > height_with_jump)
+                continue;
+            
+            // Adjust heights for vischeck
+            points.current.z += height_with_jump;
+            points.center.z += height_with_jump;
+            points.next.z += height_with_jump;
+            
+            // Perform vischeck
+            if (IsPlayerPassableNavigation(points.current, points.center) && 
+                IsPlayerPassableNavigation(points.center, points.next))
+            {
+                vischeck_cache[key] = { TICKCOUNT_TIMESTAMP(60), true };
+                
+                float cost = points.next.DistTo(points.current);
+                
+                // Apply same cost modifiers as above
+                if (*nojumppaths && height_diff > 0.1f)
+                    cost *= 2.5f;
+                    
+                if (*safepathing)
+                {
+                    bool is_safe = IsSafePosition(points.center, &area) && 
+                                 IsSafePosition(points.next, connection.area);
+                    bool is_stairs = (area.m_attributeFlags & NAV_MESH_STAIRS) || 
+                                   (connection.area->m_attributeFlags & NAV_MESH_STAIRS);
+                                       
+                    if (!is_safe)
+                        cost *= is_stairs ? 1.5f : 2.0f;
+                }
+                
+                // HVH height advantage calculations - only if we have a target
+                if (current_target)
+                {
+                    float height_advantage = GetHeightAdvantage(connection.area->m_center, current_target->m_vecOrigin());
+                    if (height_advantage > 100.0f)
+                        cost *= 0.5f;
+                    else if (height_advantage > 50.0f)
+                        cost *= 0.75f;
+                    else if (height_advantage < -50.0f)
+                        cost *= 1.5f;
+                }
+                
+                adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
             }
             else
-            {
-                // Check if there is direct line of sight
-                if (IsPlayerPassableNavigation(points.current, points.center) && IsPlayerPassableNavigation(points.center, points.next))
-                {
-                    vischeck_cache[key] = { TICKCOUNT_TIMESTAMP(60), true };
-
-                    float cost = points.next.DistTo(points.current);
-                    // If nojumppaths is enabled and this connection requires jumping, increase the cost
-                    if (*nojumppaths && height_diff > 0.1f)
-                        cost *= 2.5f;  // Make jumping paths cost more to encourage finding non-jumping paths
-                        
-                    // If safepathing is enabled, check if the path points are safe
-                    if (*safepathing)
-                    {
-                        bool is_safe = IsSafePosition(points.center, &area) && 
-                                     IsSafePosition(points.next, connection.area);
-                        bool is_stairs = (area.m_attributeFlags & NAV_MESH_STAIRS) || 
-                                       (connection.area->m_attributeFlags & NAV_MESH_STAIRS);
-                                       
-                        // If this is a stair connection, reduce the cost penalty
-                        if (!is_safe)
-                            cost *= is_stairs ? 1.5f : 2.0f;
-                    }
-                    
-                    adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
-                }
-                else
-                {
-                    vischeck_cache[key] = { TICKCOUNT_TIMESTAMP(60), false };
-                }
-            }
+                vischeck_cache[key] = { TICKCOUNT_TIMESTAMP(60), false };
         }
     }
 
@@ -392,12 +418,16 @@ public:
     {
         auto vec_corrected = vec;
         vec_corrected.z += PLAYER_JUMP_HEIGHT;
+        
         float ovBestDist = FLT_MAX, bestDist = FLT_MAX;
-        // If multiple candidates for LocalNav have been found, pick the closest
         CNavArea *ovBestSquare = nullptr, *bestSquare = nullptr;
+        
+        // Cache squared distances to avoid sqrt operations
+        const float max_dist_sqr = 1000000.0f;
+        
         for (auto &i : navfile.m_areas)
         {
-            // Marked bad, do not use if local origin
+            // Skip blacklisted areas if checking local origin
             if (g_pLocalPlayer->v_Origin == vec)
             {
                 auto key = std::pair<CNavArea *, CNavArea *>(&i, &i);
@@ -405,27 +435,38 @@ public:
                     if (!vischeck_cache[key].vischeck_state)
                         continue;
             }
-
-            float dist = i.m_center.DistTo(vec);
-            if (dist < bestDist)
+            
+            // Quick reject if too far
+            float dist_sqr = i.m_center.DistToSqr(vec);
+            if (dist_sqr > max_dist_sqr)
+                continue;
+            
+            // Update best distance if closer
+            if (dist_sqr < bestDist)
             {
-                bestDist   = dist;
+                bestDist = dist_sqr;
                 bestSquare = &i;
             }
-            auto center_corrected = i.m_center;
-            center_corrected.z += PLAYER_JUMP_HEIGHT;
-            // Check if we are within x and y bounds of an area
-            if (ovBestDist < dist || !i.IsOverlapping(vec) || !IsVectorVisibleNavigation(vec_corrected, center_corrected))
+            
+            // Check if we're within bounds
+            if (i.IsOverlapping(vec))
             {
-                continue;
+                auto center_corrected = i.m_center;
+                center_corrected.z += PLAYER_JUMP_HEIGHT;
+                
+                // Visibility check
+                if (IsVectorVisibleNavigation(vec_corrected, center_corrected))
+                {
+                    if (dist_sqr < ovBestDist)
+                    {
+                        ovBestDist = dist_sqr;
+                        ovBestSquare = &i;
+                    }
+                }
             }
-            ovBestDist   = dist;
-            ovBestSquare = &i;
         }
-        if (!ovBestSquare)
-            ovBestSquare = bestSquare;
-
-        return ovBestSquare;
+        
+        return ovBestSquare ? ovBestSquare : bestSquare;
     }
     std::vector<void *> findPath(CNavArea *local, CNavArea *dest)
     {
@@ -461,90 +502,111 @@ public:
         if (!update_time.test_and_set(1000))
             return;
 
-        // Sentries make sounds, so we can just rely on soundcache here and always clear sentries
-        NavEngine::clearFreeBlacklist(SENTRY);
+        // Track if we need to reset the pather
+        bool needs_reset = false;
+        
+        // Cache current time
+        int current_tick = g_GlobalVars->tickcount;
+        
+        // Cache team for team checks
+        int local_team = g_pLocalPlayer->team;
+        
+        // Clear sentries first since we'll rebuild them
+        free_blacklist.clear();
+        
         // Find sentries and stickies
         for (int i = g_IEngine->GetMaxClients() + 1; i < MAX_ENTITIES; i++)
         {
             CachedEntity* ent = ENTITY(i);
-            if (CE_INVALID(ent) || !ent->m_bAlivePlayer() || ent->m_iTeam() == g_pLocalPlayer->team)
+            if (CE_INVALID(ent) || !ent->m_bAlivePlayer() || ent->m_iTeam() == local_team)
                 continue;
+            
             bool is_sentry = ent->m_iClassID() == CL_CLASS(CObjectSentrygun);
-            bool is_sticky = ent->m_iClassID() == CL_CLASS(CTFGrenadePipebombProjectile) && CE_INT(ent, netvar.iPipeType) == 1 && CE_VECTOR(ent, netvar.vVelocity).IsZero(1.0f);
-            // Not sticky/sentry, ignore.
-            // (Or dormant sticky)
+            bool is_sticky = ent->m_iClassID() == CL_CLASS(CTFGrenadePipebombProjectile) && 
+                            CE_INT(ent, netvar.iPipeType) == 1 && 
+                            CE_VECTOR(ent, netvar.vVelocity).IsZero(1.0f);
+                            
             if (!is_sentry && (!is_sticky || CE_BAD(ent)))
                 continue;
+            
             if (is_sentry)
             {
-                // Should we even ignore the sentry?
-                // Soldier/Heavy do not care about Level 1 or mini sentries
+                // Skip weak sentries for strong classes
                 bool is_strong_class = g_pLocalPlayer->clazz == tf_soldier || g_pLocalPlayer->clazz == tf_heavy;
-                int bullet           = CE_INT(ent, netvar.m_iAmmoShells);
-                int rocket           = CE_INT(ent, netvar.m_iAmmoRockets);
-                if ((is_strong_class && (CE_BYTE(ent, netvar.m_bMiniBuilding) || CE_INT(ent, netvar.iUpgradeLevel) == 1)) || (bullet == 0 && (CE_INT(ent, netvar.iUpgradeLevel) != 3 || rocket == 0)))
+                if (is_strong_class && 
+                    (CE_BYTE(ent, netvar.m_bMiniBuilding) || CE_INT(ent, netvar.iUpgradeLevel) == 1))
+                    continue;
+                    
+                // Skip empty/building/sapped sentries unless just deployed
+                int bullet = CE_INT(ent, netvar.m_iAmmoShells);
+                int rocket = CE_INT(ent, netvar.m_iAmmoRockets);
+                if ((bullet == 0 && (CE_INT(ent, netvar.iUpgradeLevel) != 3 || rocket == 0)) ||
+                    (!CE_BYTE(ent, netvar.m_bCarryDeploy) && 
+                     (CE_BYTE(ent, netvar.m_bBuilding) || 
+                      CE_BYTE(ent, netvar.m_bPlacing) || 
+                      CE_BYTE(ent, netvar.m_bHasSapper))))
                     continue;
 
-                // It's still building/being sapped, ignore.
-                // Unless it just was deployed from a carry, then it's dangerous
-                if ((!CE_BYTE(ent, netvar.m_bCarryDeploy) && CE_BYTE(ent, netvar.m_bBuilding)) || CE_BYTE(ent, netvar.m_bPlacing) || CE_BYTE(ent, netvar.m_bHasSapper))
-                    continue;
-
-                // Get origin of the sentry
+                // Get sentry position
                 auto building_origin = GetBuildingPosition(ent);
-                // For dormant sentries we need to add the jump height to the z
                 if (CE_BAD(ent))
                     building_origin.z += PLAYER_JUMP_HEIGHT;
-                // Actual building check
-                for (auto &i : navfile.m_areas)
+                    
+                // Check nav areas in range
+                for (auto &area : navfile.m_areas)
                 {
-                    Vector area = i.m_center;
-                    area.z += PLAYER_JUMP_HEIGHT;
-                    // Out of range
-                    if (building_origin.DistToSqr(area) > (1100 + HALF_PLAYER_WIDTH) * (1100 + HALF_PLAYER_WIDTH))
+                    Vector area_pos = area.m_center;
+                    area_pos.z += PLAYER_JUMP_HEIGHT;
+                    
+                    // Quick distance check
+                    if (building_origin.DistToSqr(area_pos) > (1100 + HALF_PLAYER_WIDTH) * (1100 + HALF_PLAYER_WIDTH))
                         continue;
-                    // Check if sentry can see us
-                    if (!IsVectorVisibleNavigation(building_origin, area))
+                        
+                    // Visibility check
+                    if (!IsVectorVisibleNavigation(building_origin, area_pos))
                         continue;
-                    // Blacklist because it's in view range of the sentry
-                    free_blacklist[&i] = SENTRY;
+                        
+                    free_blacklist[&area] = SENTRY;
+                    needs_reset = true;
                 }
             }
-            else
+            else // Sticky
             {
                 auto sticky_origin = ent->m_vecOrigin();
-                // Make sure the sticky doesn't vischeck from inside the floor
                 sticky_origin.z += PLAYER_JUMP_HEIGHT / 2.0f;
-                for (auto &i : navfile.m_areas)
+                
+                // Check nav areas in range
+                for (auto &area : navfile.m_areas)
                 {
-                    Vector area = i.m_center;
-                    area.z += PLAYER_JUMP_HEIGHT;
-                    // Out of range
-                    if (sticky_origin.DistToSqr(area) > (130 + HALF_PLAYER_WIDTH) * (130 + HALF_PLAYER_WIDTH))
+                    Vector area_pos = area.m_center;
+                    area_pos.z += PLAYER_JUMP_HEIGHT;
+                    
+                    // Quick distance check
+                    if (sticky_origin.DistToSqr(area_pos) > (130 + HALF_PLAYER_WIDTH) * (130 + HALF_PLAYER_WIDTH))
                         continue;
-                    // Check if Sticky can see the reason
-                    if (!IsVectorVisibleNavigation(sticky_origin, area))
+                        
+                    // Visibility check
+                    if (!IsVectorVisibleNavigation(sticky_origin, area_pos))
                         continue;
-                    // Blacklist because it's in range of the sticky, but stickies make no noise, so blacklist it for a specific timeframe
-                    free_blacklist[&i] = { STICKY, TICKCOUNT_TIMESTAMP(*sticky_ignore_time) };
+                        
+                    free_blacklist[&area] = { STICKY, TICKCOUNT_TIMESTAMP(*sticky_ignore_time) };
+                    needs_reset = true;
                 }
             }
         }
 
         static size_t previous_blacklist_size = 0;
-
-        bool erased = false;
         if (previous_blacklist_size != free_blacklist.size())
-            erased = true;
+            needs_reset = true;
         previous_blacklist_size = free_blacklist.size();
-        // When we switch to c++20, we can use std::erase_if
+
+        // Clear expired entries from blacklists
         for (auto it = begin(free_blacklist); it != end(free_blacklist);)
         {
-            // Clear entries from the free blacklist when expired and if it has a set time
-            if (it->second.time && it->second.time < g_GlobalVars->tickcount)
+            if (it->second.time && it->second.time < current_tick)
             {
-                it     = free_blacklist.erase(it); // previously this was something like m_map.erase(it++);
-                erased = true;
+                it = free_blacklist.erase(it);
+                needs_reset = true;
             }
             else
                 ++it;
@@ -552,25 +614,28 @@ public:
 
         for (auto it = begin(vischeck_cache); it != end(vischeck_cache);)
         {
-            if (it->second.expire_tick < g_GlobalVars->tickcount)
+            if (it->second.expire_tick < current_tick)
             {
-                it     = vischeck_cache.erase(it); // previously this was something like m_map.erase(it++);
-                erased = true;
+                it = vischeck_cache.erase(it);
+                needs_reset = true;
             }
             else
                 ++it;
         }
+
         for (auto it = begin(connection_stuck_time); it != end(connection_stuck_time);)
         {
-            if (it->second.expire_tick < g_GlobalVars->tickcount)
+            if (it->second.expire_tick < current_tick)
             {
-                it     = connection_stuck_time.erase(it); // previously this was something like m_map.erase(it++);
-                erased = true;
+                it = connection_stuck_time.erase(it);
+                needs_reset = true;
             }
             else
                 ++it;
         }
-        if (erased)
+
+        // Only reset pather if needed
+        if (needs_reset)
             pather.Reset();
     }
 

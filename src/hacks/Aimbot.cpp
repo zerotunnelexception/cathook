@@ -34,6 +34,7 @@ static settings::Int hitbox_mode{ "aimbot.hitbox-mode", "0" };
 static settings::Float normal_fov{ "aimbot.fov", "0" };
 static settings::Int priority_mode{ "aimbot.priority-mode", "0" };
 static settings::Boolean wait_for_charge{ "aimbot.wait-for-charge", "0" };
+static settings::Boolean wait_for_headshot{ "aimbot.wait-for-headshot", "0" };
 
 static settings::Boolean silent{ "aimbot.silent", "1" };
 static settings::Boolean target_lock{ "aimbot.lock-target", "false" };
@@ -323,7 +324,7 @@ std::vector<Vector> getValidHitpoints(CachedEntity *ent, int hitbox)
         const u_int8_t max_box = ent->hitboxes.GetNumHitboxes();
         while (hitpoints.empty() && i < max_box) // Prevents returning empty at all costs. Loops through every hitbox
         {
-            if (hitbox == i)
+            if (i == hitbox)
             {
                 ++i;
                 continue;
@@ -1238,6 +1239,28 @@ bool Aim(AimbotTarget_t target)
     if (*miss_chance > 0 && UniformRandomInt(0, 99) < *miss_chance)
         return true;
 
+    // Don't aim if waiting for headshot and not aiming at head
+    if (*wait_for_headshot)
+    {
+        // For Sniper Rifle - check if we can headshot
+        if (g_pLocalPlayer->holding_sniper_rifle)
+        {
+            if (target.hitbox != hitbox_t::head)
+                return false;
+            if (!g_pLocalPlayer->bZoomed)
+                return false;
+        }
+        // For Ambassador - check if we can headshot
+        else if (IsAmbassador(g_pLocalPlayer->weapon()))
+        {
+            if (target.hitbox != hitbox_t::head)
+                return false;
+            // Only check basic headshot capability
+            if (!AmbassadorCanHeadshot())
+                return false;
+        }
+    }
+
     // Get angles from eye to target
     Vector angles = CalculateAimAngles(g_pLocalPlayer->v_Eye, target.aim_position, LOCAL_E);
     // Slow aim
@@ -1317,22 +1340,33 @@ void DoAutoshoot(AimbotTarget_t target)
     bool attack = true;
 
     // Rifle check
-
     if (g_pLocalPlayer->clazz == tf_class::tf_sniper)
     {
         if (g_pLocalPlayer->holding_sniper_rifle)
         {
             if (zoomed_only && !CanHeadshot())
                 attack = false;
+            // Wait for headshot check
+            if (*wait_for_headshot && target.valid)
+            {
+                // Only shoot if we're aiming at the head
+                if (target.hitbox != hitbox_t::head)
+                    attack = false;
+                // And can headshot
+                if (!CanHeadshot())
+                    attack = false;
+            }
         }
     }
 
     // Ambassador check
-
     else if (IsAmbassador(g_pLocalPlayer->weapon()))
     {
-        // Check if ambasador can headshot
-        if (!AmbassadorCanHeadshot() && wait_for_charge)
+        // Check if ambassador can headshot
+        if (!AmbassadorCanHeadshot() && (wait_for_charge || *wait_for_headshot))
+            attack = false;
+        // Wait for headshot check - only shoot if aiming at head
+        if (*wait_for_headshot && target.valid && target.hitbox != hitbox_t::head)
             attack = false;
     }
 

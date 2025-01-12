@@ -34,7 +34,6 @@
     </Box>
     <Box height="content" width="content" padding="12 6 6 6" name="Extra" x="215" y="115">
         <List width="200">
-            <AutoVariable width="fill" target="noisemaker-spam.enable" label="Noisemaker spam"/>
             <AutoVariable width="fill" target="player-tools.betrayal-limit" label="Betrayal limit"/>
             <AutoVariable width="fill" target="player-tools.ignore.hoovy" label="Ignore hoovies"/>
             <AutoVariable width="fill" target="player-tools.ignore.taunting" label="Ignore taunting players"/>

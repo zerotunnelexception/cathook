@@ -1,5 +1,5 @@
 <Tab name="Chat" padding="4 4 4 4">
-    <Box padding="12 6 6 6" width="content" height="content" name="Chat spam">
+    <Box padding="12 6 6 6" width="content" height="content" name="In-game spam">
         <List width="150">
             <LabeledObject width="fill" label="Spam mode">
                 <Select target="spam.source">
@@ -17,10 +17,6 @@
             <AutoVariable width="fill" target="spam.random" label="Randomize"/>
             <AutoVariable width="fill" target="spam.delay" label="Spam delay" tooltip="Delay in milliseconds"/>
             <AutoVariable width="fill" target="spam.teamchat" label="Spam in teamchat" tooltip="Spam in teamchat instead of game chat"/>
-        </List>
-    </Box>
-    <Box name="Voice spam" width="content" height="content" padding="12 6 6 6" y="100">
-        <List width="150">
             <LabeledObject width="fill" label="Voice spam" tooltip="Spam character voicelines.">
                 <Select target="spam.voicecommand">
                     <Option name="Disable" value="0"/>
@@ -32,6 +28,7 @@
                     <Option name="Jeers" value="6"/>
                 </Select>
             </LabeledObject>
+            <AutoVariable width="fill" target="noisemaker-spam.enable" label="Noisemaker spam"/>
         </List>
     </Box>
     <Box padding="12 6 6 6" width="content" height="content" name="Chat log" y="135">
