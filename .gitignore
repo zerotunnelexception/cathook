@@ -295,6 +295,7 @@ scripts/updater-preferences
 
 # Amalgam folder
 src/Amalgam/
+Amalgam/
 
 _deps/
 
