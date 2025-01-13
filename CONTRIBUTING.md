@@ -5,7 +5,7 @@
 - A working up-to-date cathook installation
 - C++ knowledge
 - Git knowledge
-- Ability to ask for help (Feel free to create empty pull-request or PM a maintainer in [Telegram](https://t.me/nullworks))
+- Ability to ask for help (Feel free to create empty pull-request or PM a maintainer in [Telegram](https://t.me/cathookcom))
 
 ### Setting up cathook
 
