@@ -14,10 +14,7 @@ static settings::Boolean debug_log_panel_names{ "debug.log-panels", "false" };
 
 static settings::Int waittime{ "debug.join-wait-time", "2500" };
 static settings::Boolean no_reportlimit{ "misc.no-report-limit", "false" };
-namespace mchealthbar
-{
-extern settings::Boolean minecraftHP;
-}
+
 int spamdur = 0;
 Timer joinspam{};
 CatCommand join_spam("join_spam", "Spam joins server for X seconds", [](const CCommand &args) {
@@ -80,7 +77,7 @@ DEFINE_HOOKED_METHOD(PaintTraverse, void, vgui::IPanel *this_, vgui::VPANEL pane
         replaced = true;
     }
     call_default = true;
-    if (isHackActive() && (health_panel || panel_scope || motd_panel || motd_panel_sd) && ((panel == health_panel && mchealthbar::minecraftHP) || (hacks::shared::catbot::catbotmode && hacks::shared::catbot::anti_motd && (panel == motd_panel || panel == motd_panel_sd))))
+    if (isHackActive() && (health_panel || panel_scope || motd_panel || motd_panel_sd) && ((panel == health_panel) || (hacks::shared::catbot::catbotmode && hacks::shared::catbot::anti_motd && (panel == motd_panel || panel == motd_panel_sd))))
         call_default = false;
 
     if (software_cursor_mode)

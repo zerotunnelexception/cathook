@@ -56,7 +56,6 @@ if(EnableVisuals)
             "${CMAKE_CURRENT_LIST_DIR}/SkinChanger.cpp"
             "${CMAKE_CURRENT_LIST_DIR}/SpyAlert.cpp"
             "${CMAKE_CURRENT_LIST_DIR}/Thirdperson.cpp"
-            "${CMAKE_CURRENT_LIST_DIR}/MCHealthbar.cpp"
             "${CMAKE_CURRENT_LIST_DIR}/Ragdolls.cpp")
     target_sources(cathook PRIVATE ${files})
 endif()

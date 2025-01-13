@@ -20,8 +20,6 @@
             <AutoVariable width="fill" target="visual.snowflakes.sideways-speed.max" label="Maximum sidemove speed"/>
             <AutoVariable width="fill" target="visual.font_size.esp" label="Main font size"/>
             <AutoVariable width="fill" target="visual.font_size.center_size" label="Center string font size"/>
-            <AutoVariable width="fill" target="mc_health.enable" label="Enable MC healthbar" tooltip="Shows a Minecraft style healthbar."/>
-            <AutoVariable width="fill" target="mc_health.size" label="MC healthbar size"/>
         </List>
     </Box>
 </Tab>

@@ -81,4 +81,15 @@
             <AutoVariable width="fill" target="autoupgrade.teleport.level" label="Upgrade teleporter level" min="1" max="3"/> 
         </List>
     </Box>
+    <Box name="MvM Bot" width="content" height="content" padding="12 6 6 6" x="370" y="250">
+        <List width="200">
+            <AutoVariable width="fill" target="navbot.mvm.enabled" label="Enable MvM mode"/>
+            <AutoVariable width="fill" target="navbot.mvm.autoupgrade" label="Auto upgrade"/>
+            <AutoVariable width="fill" target="navbot.mvm.force-upgrade" label="Force upgrade"/>
+            <AutoVariable width="fill" target="navbot.mvm.min-credits" label="Min credits for upgrade"/>
+            <AutoVariable width="fill" target="navbot.mvm.min-upgrade-credits" label="Min credits to start"/>
+            <AutoVariable width="fill" target="navbot.mvm.upgrade-range" label="Upgrade station range"/>
+            <AutoVariable width="fill" target="navbot.mvm.debug" label="Debug mode"/>
+        </List>
+    </Box>
 </Tab> 

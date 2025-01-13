@@ -2,7 +2,6 @@
 #include "init.hpp"
 #include "HookTools.hpp"
 #include "interfaces.hpp"
-#include "navparser.hpp"
 #include "playerresource.h"
 #include "localplayer.hpp"
 #include "sdk.hpp"
@@ -35,6 +34,16 @@ static settings::Boolean blacklist_dormat("navbot.proximity-blacklist.dormant", 
 static settings::Int blacklist_delay_dormat("navbot.proximity-blacklist.delay-dormant", "1000");
 static settings::Int blacklist_slightdanger_limit("navbot.proximity-blacklist.slight-danger.amount", "2");
 static settings::Boolean engie_mode("navbot.engineer-mode", "true");
+
+// MvM specific settings
+static settings::Boolean mvm_enabled("navbot.mvm.enabled", "false");
+static settings::Boolean mvm_autoupgrade("navbot.mvm.autoupgrade", "false");
+static settings::Boolean mvm_force_upgrade("navbot.mvm.force-upgrade", "false");
+static settings::Int mvm_min_credits("navbot.mvm.min-credits", "400");
+static settings::Int mvm_min_upgrade_credits("navbot.mvm.min-upgrade-credits", "250");
+static settings::Float mvm_upgrade_range("navbot.mvm.upgrade-range", "500");
+static settings::Boolean mvm_debug("navbot.mvm.debug", "false");
+
 #if ENABLE_VISUALS
 static settings::Boolean draw_danger("navbot.draw-danger", "false");
 #endif
@@ -426,7 +435,7 @@ static bool navToSentrySpot()
     for (int attempts = 0; attempts < 10 && attempts < building_spots.size(); ++attempts)
     {
         // Get a semi-random building spot to still keep distance preferrance
-        auto random_offset = RandomInt(0, std::min(3, (int) building_spots.size()));
+        int random_offset = RandomInt(0, std::min<int>(3, building_spots.size()));
 
         Vector random;
 
@@ -528,7 +537,7 @@ void updateEnemyBlacklist(int slot)
             auto distance = selected_config.min_slight_danger;
 
             distance *= 0.25f;
-            distance = std::max(100.0f, distance);
+            distance = (std::max)(100.0f, distance);
 
             // Square the distance
             distance *= distance;
@@ -666,7 +675,7 @@ bool stayNearTarget(CachedEntity *ent)
         std::sort(good_areas.begin(), good_areas.end(), [](std::pair<CNavArea *, float> a, std::pair<CNavArea *, float> b) { return a.second < b.second; });
 
     // Try to path to all the good areas, based on distance
-    if (std::ranges::any_of(good_areas, [](std::pair<CNavArea *, float> area) { return navparser::NavEngine::navTo(area.first->m_center, staynear, true, !navparser::NavEngine::isPathing()); }))
+    if (std::any_of(good_areas.begin(), good_areas.end(), [](std::pair<CNavArea *, float> area) { return navparser::NavEngine::navTo(area.first->m_center, staynear, true, !navparser::NavEngine::isPathing()); }))
         return true;
 
     return false;
@@ -918,7 +927,7 @@ bool meleeAttack(int slot, std::pair<CachedEntity *, float> &nearest)
         distance_per_second = ATTRIB_HOOK_FLOAT(distance_per_second, "mult_player_movespeed_shieldrequired", raw_local, 0x0, true);
         distance_per_second = ATTRIB_HOOK_FLOAT(distance_per_second, "mult_player_movespeed", raw_local, 0x0, true);
         // Max is still 750.0f
-        distance_per_second = std::min(distance_per_second, 750.0f);
+        distance_per_second = std::fmin(distance_per_second, 750.0f);
         // Time spent charging
         float seconds = 1.5f;
         // Apply modifiers that change charge length
@@ -995,7 +1004,7 @@ bool tryToSnipe(CachedEntity *ent)
     else
         std::sort(good_areas.begin(), good_areas.end(), [](std::pair<CNavArea *, float> a, std::pair<CNavArea *, float> b) { return a.second < b.second; });
 
-    if (std::ranges::any_of(good_areas, [](std::pair<CNavArea *, float> area) { return navparser::NavEngine::navTo(area.first->m_center, snipe_sentry); }))
+    if (std::any_of(good_areas.begin(), good_areas.end(), [](std::pair<CNavArea *, float> area) { return navparser::NavEngine::navTo(area.first->m_center, snipe_sentry); }))
         return true;
     return false;
 }
@@ -1563,6 +1572,310 @@ static void updateSlot(std::pair<CachedEntity *, float> &nearest)
     }
 }
 
+// MvM upgrade spots
+static std::vector<Vector> upgrade_spots;
+
+// MvM upgrade info
+struct MvMUpgradeInfo {
+    int id;
+    int cost;
+    int clazz;
+    int priority;
+    int priority_falloff;
+    
+    MvMUpgradeInfo() = default;
+    MvMUpgradeInfo(int _id, int _cost, int _clazz, int _priority, int _priority_falloff) :
+        id(_id), cost(_cost), clazz(_clazz), priority(_priority), priority_falloff(_priority_falloff) {}
+};
+
+static std::vector<MvMUpgradeInfo> upgrade_list;
+static bool inited_upgrades = false;
+
+// Get MvM credits
+static int GetMvmCredits() {
+    if (CE_GOOD(LOCAL_E))
+        return NET_INT(RAW_ENT(LOCAL_E), 0x2f50);
+    return 0;
+}
+
+// Initialize upgrade spots
+static void InitMvMSpots() {
+    upgrade_spots.clear();
+    
+    // Add upgrade station locations for different maps
+    std::string map = g_IEngine->GetLevelName();
+    if (map.find("mvm_coaltown") != std::string::npos)
+        upgrade_spots.push_back(Vector(852.73f, -2619.65f, 581.23f));
+    else if (map.find("mvm_bigrock") != std::string::npos)
+        upgrade_spots.push_back(Vector(935.0f, -2626.0f, 577.0f));
+    else if (map.find("mvm_decoy") != std::string::npos)
+        upgrade_spots.push_back(Vector(-885.0f, -2229.0f, 545.0f));
+    else if (map.find("mvm_ghost_town") != std::string::npos)
+        upgrade_spots.push_back(Vector(851.0f, -2509.0f, 577.0f));
+    else if (map.find("mvm_mannhatten") != std::string::npos)
+        upgrade_spots.push_back(Vector(-625.0f, 2273.0f, -95.0f));
+    else if (map.find("mvm_mannworks") != std::string::npos)
+        upgrade_spots.push_back(Vector(517.0f, -2599.0f, 450.0f));
+    else if (map.find("mvm_rottenburg") != std::string::npos)
+        upgrade_spots.push_back(Vector(-1346.0f, 625.0f, -102.0f));
+}
+
+// Track current upgrade levels
+struct UpgradeState {
+    int id;
+    int level;
+    UpgradeState(int _id) : id(_id), level(0) {}
+};
+static std::vector<UpgradeState> current_upgrade_levels;
+
+// Initialize upgrade list with proper level tracking
+static void InitMvMUpgrades() {
+    if (inited_upgrades)
+        return;
+        
+    upgrade_list.clear();
+    current_upgrade_levels.clear();
+    
+    // Add upgrades based on class
+    switch (g_pLocalPlayer->clazz) {
+    case tf_sniper:
+        // Damage
+        current_upgrade_levels.emplace_back(0);
+        upgrade_list.emplace_back(0, 400, tf_sniper, 4, 1);
+        // Projectile Penetration
+        current_upgrade_levels.emplace_back(12);
+        upgrade_list.emplace_back(12, 400, tf_sniper, 5, 500);
+        // Explosive Headshot
+        current_upgrade_levels.emplace_back(40);
+        upgrade_list.emplace_back(40, 350, tf_sniper, 6, 2);
+        // +50% Ammo
+        current_upgrade_levels.emplace_back(6);
+        upgrade_list.emplace_back(6, 250, tf_sniper, 3, 1);
+        // +20% Reload Speed
+        current_upgrade_levels.emplace_back(35);
+        upgrade_list.emplace_back(35, 250, tf_sniper, 6, 1);
+        // +25 Health on kill
+        current_upgrade_levels.emplace_back(11);
+        upgrade_list.emplace_back(11, 200, tf_sniper, 3, 2);
+        // +25% Faster charge
+        current_upgrade_levels.emplace_back(17);
+        upgrade_list.emplace_back(17, 200, tf_sniper, 4, 1);
+        break;
+    // TODO: Add upgrades for other classes
+    }
+    
+    inited_upgrades = true;
+}
+
+// Get upgrade level for a specific upgrade ID
+static int GetUpgradeLevel(int upgrade_id) {
+    for (auto& state : current_upgrade_levels) {
+        if (state.id == upgrade_id)
+            return state.level;
+    }
+    return 0;
+}
+
+// Update upgrade level after purchase
+static void UpdateUpgradeLevel(int upgrade_id) {
+    for (auto& state : current_upgrade_levels) {
+        if (state.id == upgrade_id) {
+            state.level++;
+            break;
+        }
+    }
+}
+
+// Pick best upgrade based on priority, cost and current level
+static MvMUpgradeInfo PickBestUpgrade() {
+    int highest_priority = INT_MIN;
+    std::vector<MvMUpgradeInfo*> potential_upgrades;
+    std::vector<MvMUpgradeInfo*> lower_priority_upgrades;
+    int credits = GetMvmCredits();
+    
+    for (auto& upgrade : upgrade_list) {
+        // Skip if wrong class
+        if (upgrade.clazz != g_pLocalPlayer->clazz)
+            continue;
+            
+        // Get current level
+        int current_level = GetUpgradeLevel(upgrade.id);
+        
+        // Skip if max level (3)
+        if (current_level >= 3)
+            continue;
+            
+        // Skip if can't afford
+        if (upgrade.cost > credits)
+            continue;           
+            
+        // Clear list if higher priority found
+        if (upgrade.priority > highest_priority) {
+            lower_priority_upgrades = potential_upgrades; // Save lower priority upgrades
+            potential_upgrades.clear();
+            highest_priority = upgrade.priority;
+        }
+        
+        potential_upgrades.push_back(&upgrade);
+    }
+    
+    // If no high priority upgrade found, use lower priority upgrades
+    if (potential_upgrades.empty() && !lower_priority_upgrades.empty()) {
+        potential_upgrades = lower_priority_upgrades;
+    }
+    
+    // Return invalid upgrade if none found
+    if (potential_upgrades.empty())
+        return MvMUpgradeInfo(-1, -1, -1, -1, -1);
+        
+    // Pick random upgrade from highest priority ones
+    auto chosen = potential_upgrades[rand() % potential_upgrades.size()];
+    chosen->priority -= chosen->priority_falloff;
+    return *chosen;
+}
+
+// Try to navigate to upgrade station
+static bool NavigateToUpgradeStation() {
+    if (upgrade_spots.empty())
+        return false;
+        
+    // Already at an upgrade station
+    for (const auto& spot : upgrade_spots) {
+        if (spot.DistTo(g_pLocalPlayer->v_Origin) <= *mvm_upgrade_range)
+            return true;
+    }
+        
+    // Find closest upgrade spot
+    Vector best_spot;
+    float best_dist = FLT_MAX;
+    
+    for (const auto& spot : upgrade_spots) {
+        float dist = spot.DistTo(g_pLocalPlayer->v_Origin);
+        if (dist < best_dist) {
+            best_dist = dist;
+            best_spot = spot;
+        }
+    }
+    
+    // Don't try to path if we're already pathing there
+    if (navparser::NavEngine::current_priority == mvm_upgrade)
+        return true;
+        
+    // Try to path to closest spot
+    if (navparser::NavEngine::navTo(best_spot, mvm_upgrade, true, true))
+        return true;
+        
+    return false;
+}
+
+// Main MvM logic
+static bool RunMvMLogic() {
+    if (!*mvm_enabled)
+        return false;
+        
+    // Check if MvM map
+    std::string map = g_IEngine->GetLevelName();
+    if (map.find("mvm_") == std::string::npos)
+        return false;
+        
+    // Initialize spots and upgrades
+    static Timer init_timer;
+    if (init_timer.test_and_set(5000)) {
+        InitMvMSpots();
+        InitMvMUpgrades();
+    }
+    
+    // Force upgrade mode - always try to upgrade
+    if (*mvm_force_upgrade) {
+        if (*mvm_debug)
+            logging::Info("Force upgrade mode active");
+        return NavigateToUpgradeStation();
+    }
+    
+    // Need minimum credits to try upgrading
+    if (!*mvm_force_upgrade && GetMvmCredits() < *mvm_min_upgrade_credits)
+        return false;
+    
+    // Already at upgrade station
+    if (!upgrade_spots.empty()) {
+        float dist = upgrade_spots[0].DistTo(g_pLocalPlayer->v_Origin);
+        if (dist <= *mvm_upgrade_range && (GetMvmCredits() >= *mvm_min_credits || *mvm_force_upgrade)) {
+            if (*mvm_debug)
+                logging::Info("At upgrade station, attempting upgrade");
+                
+            // Keep trying to buy upgrades until we can't anymore
+            bool bought_something = false;
+            while (true) {
+                // Check if we still have enough credits
+                if (GetMvmCredits() < *mvm_min_credits && !*mvm_force_upgrade)
+                    break;
+                    
+                // Try to pick and buy an upgrade
+                auto upgrade = PickBestUpgrade();
+                if (upgrade.id == -1)
+                    break;  // No more upgrades available
+                    
+                // Create and send upgrade KeyValues
+                auto *kv = new KeyValues("MVM_Upgrade");
+                auto *upgrade_kv = new KeyValues("upgrade");
+                
+                // Set upgrade details - itemslot 0 is primary weapon
+                upgrade_kv->SetInt("itemslot", 0);
+                upgrade_kv->SetInt("upgrade", upgrade.id);
+                upgrade_kv->SetInt("count", 1);
+                
+                // Add upgrade subkey
+                kv->AddSubKey(upgrade_kv);
+                
+                // Send to server
+                g_IEngine->ServerCmdKeyValues(kv);
+                
+                // Update local upgrade level
+                UpdateUpgradeLevel(upgrade.id);
+                if (*mvm_debug)
+                    logging::Info("Purchased upgrade %d", upgrade.id);
+                    
+                bought_something = true;
+                
+                // Small delay between purchases
+                static Timer purchase_delay;
+                if (!purchase_delay.test_and_set(100))
+                    break;
+            }
+            
+            // If we didn't buy anything or finished buying, close menu and leave
+            if (!bought_something) {
+                g_IEngine->ClientCmd_Unrestricted("close_charinfo_direct");
+                g_IEngine->ClientCmd_Unrestricted("cancelselect");
+                return false;
+            }
+            return true;
+        }
+    }
+    
+    // Between rounds always try to upgrade
+    if (*mvm_autoupgrade) {
+        // In MvM, BLU is robots and RED is humans
+        // We can check if we're between waves by checking if robots are present
+        bool between_waves = true;
+        for (int i = 1; i <= g_IEngine->GetMaxClients(); i++) {
+            if (g_pPlayerResource->GetTeam(i) == TEAM_BLU && g_pPlayerResource->isAlive(i)) {
+                between_waves = false;
+                break;
+            }
+        }
+        
+        if (between_waves) {
+            if (*mvm_debug)
+                logging::Info("Between waves, attempting upgrade");
+            return NavigateToUpgradeStation();
+        }
+    }
+    
+    // Try to navigate to upgrade station
+    return NavigateToUpgradeStation();
+}
+
 static void CreateMove()
 {
     if (!enabled || !navparser::NavEngine::isReady())
@@ -1604,8 +1917,8 @@ static void CreateMove()
     autoJump(nearest);
     updateEnemyBlacklist(slot);
 
-    // Try to escape danger first of all
-    if (escapeDanger())
+    // First priority should be MvM upgrades on MvM maps
+    if (g_IEngine->GetLevelName() && std::string(g_IEngine->GetLevelName()).find("mvm_") != std::string::npos && RunMvMLogic())
         return;
     // Second priority should be getting health
     else if (getHealth())
@@ -1616,7 +1929,11 @@ static void CreateMove()
     // Try to run engineer logic
     else if (runEngineerLogic())
         return;
+    // Try to kill with melee
     else if (meleeAttack(slot, nearest))
+        return;
+    // Try to escape danger
+    if (escapeDanger())
         return;
     // Try to capture objectives
     else if (captureObjectives())

@@ -7,20 +7,22 @@
 // 1. Who the fuck put this in navparser.hpp
 // 2. Why the fuck is it outside of all namespaces
 // 3. There's a conflict between melee and prio_melee in navbot.cpp, so it needs to be named differently
+// 4. No idea how to change it tbh without breaking so ill leave it here for now (melody)
 enum Priority_list
 {
-    patrol = 5,
-    lowprio_health,
-    staynear,
-    run_reload,
-    snipe_sentry,
-    followbot,
-    ammo,
-    capture,
-    prio_melee,
-    engineer,
-    health,
-    danger,
+    health = 0,
+    ammo = 1,
+    followbot = 2,
+    mvm_upgrade = 3,
+    engineer = 4,
+    prio_melee = 5,
+    danger = 6,
+    capture = 7,
+    run_reload = 8,
+    snipe_sentry = 9,
+    staynear = 10,
+    lowprio_health = 11,
+    patrol = 12
 };
 
 namespace navparser

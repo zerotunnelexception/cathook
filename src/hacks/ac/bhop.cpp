@@ -52,12 +52,13 @@ void Update(CachedEntity *player)
             if (data.ticks_on_ground == 1)
             {
                 data.detections++;
-                // TODO FIXME
+                // Check for bhop pattern and validate detections
                 if (data.detections >= int(bhop_detect_count))
                 {
-                    logging::Info("[%d] Suspected BHop: %d", player->m_IDX, data.detections);
+                    // Only log/accuse if enough time has passed since last accusation
                     if ((tickcount - data.last_accusation) > 600)
                     {
+                        logging::Info("[%d] Suspected BHop: %d", player->m_IDX, data.detections);
                         hacks::shared::anticheat::Accuse(player->m_IDX, "Bunnyhop", format("Perfect jumps = ", data.detections));
                         data.last_accusation = tickcount;
                     }
@@ -65,6 +66,7 @@ void Update(CachedEntity *player)
             }
             else
             {
+                // Reset detections if not a perfect bhop
                 data.detections = 0;
             }
         }

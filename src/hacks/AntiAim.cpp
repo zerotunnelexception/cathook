@@ -83,9 +83,26 @@ float GetAAAATimerLength()
 
 void NextAAAA()
 {
+    // Increment stage
     aaaa_stage++;
-    // TODO temporary..
-    if (aaaa_stage > 1)
+
+    // Define maximum stages based on current conditions
+    int max_stages = 4;  // Default max stages
+    
+    // Adjust max stages based on current weapon/class if needed
+    if (CE_GOOD(LOCAL_E) && CE_GOOD(LOCAL_W))
+    {
+        // For certain weapons, we might want different stage counts
+        if (LOCAL_W->m_iClassID() == CL_CLASS(CTFKnife))
+            max_stages = 3;  // Less stages for knife
+        else if (g_pLocalPlayer->clazz == tf_sniper && g_pLocalPlayer->bZoomed)
+            max_stages = 2;  // Limited stages while zoomed
+        else if (g_pLocalPlayer->clazz == tf_heavy && (g_pLocalPlayer->bRevved || g_pLocalPlayer->bRevving))
+            max_stages = 2;  // Limited stages while revved
+    }
+
+    // Reset stage if we exceed max_stages
+    if (aaaa_stage >= max_stages)
         aaaa_stage = 0;
 }
 

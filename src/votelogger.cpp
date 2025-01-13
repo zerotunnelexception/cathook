@@ -14,6 +14,9 @@
 static settings::Boolean vote_kicky{ "votelogger.autovote.yes", "false" };
 static settings::Boolean vote_kickn{ "votelogger.autovote.no", "false" };
 static settings::Boolean vote_rage_vote{ "votelogger.autovote.no.rage", "false" };
+static settings::Boolean vote_always_no{ "votelogger.autovote.always-no", "false" };
+static settings::Boolean vote_yes_on_non_friends{ "votelogger.autovote.yes-on-non-friends", "true" };
+static settings::Boolean vote_no_on_friends{ "votelogger.autovote.no-on-friends", "true" };
 static settings::Boolean chat{ "votelogger.chat", "true" };
 static settings::Boolean chat_partysay{ "votelogger.chat.partysay", "false" };
 static settings::Boolean chat_casts{ "votelogger.chat.casts", "false" };
@@ -84,7 +87,6 @@ void dispatchUserMessage(bf_read &buffer, int type)
     }
     case 46:
     {
-        // TODO: Add always vote no/vote no on friends. Cvar is "vote option2"
         was_local_player = false;
         int team         = buffer.ReadByte();
         int vote_id      = buffer.ReadLong();
@@ -109,6 +111,38 @@ void dispatchUserMessage(bf_read &buffer, int type)
         {
             was_local_player = true;
             local_kick_timer.update();
+        }
+
+        // Handle always vote no
+        if (*vote_always_no)
+        {
+            vote_command = { strfmt("vote %d option2", vote_id).get(), 0 };
+            vote_command.timer.update();
+            break;
+        }
+
+        // Handle vote no on friends
+        if (*vote_no_on_friends)
+        {
+            auto &pl = playerlist::AccessData(info.friendsID);
+            if (pl.state == playerlist::k_EState::FRIEND || pl.state == playerlist::k_EState::CAT)
+            {
+                vote_command = { strfmt("vote %d option2", vote_id).get(), 0 };
+                vote_command.timer.update();
+                break;
+            }
+        }
+
+        // Handle vote yes on non-friends
+        if (*vote_yes_on_non_friends)
+        {
+            auto &pl = playerlist::AccessData(info.friendsID);
+            if (pl.state != playerlist::k_EState::FRIEND && pl.state != playerlist::k_EState::CAT)
+            {
+                vote_command = { strfmt("vote %d option1", vote_id).get(), 0 };
+                vote_command.timer.update();
+                break;
+            }
         }
 
         if (*vote_kickn || *vote_kicky)

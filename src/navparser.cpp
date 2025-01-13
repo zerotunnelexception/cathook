@@ -968,14 +968,36 @@ void checkBlacklist()
     if (!blacklist_check_timer.test_and_set(500))
         return;
 
-    // Local player is ubered and does not care about the blacklist
-    // TODO: Only for damage type things
+    // Local player is ubered, only ignore damage-related blacklists
     if (IsPlayerInvulnerable(LOCAL_E))
     {
-        map->free_blacklist_blocked = true;
-        map->pather.Reset();
+        bool found_non_damage = false;
+        CNavArea *local_area = map->findClosestNavSquare(g_pLocalPlayer->v_Origin);
+        
+        // Check if we're in a non-damage blacklisted area
+        for (auto const &entry : map->free_blacklist)
+        {
+            if (entry.first == local_area)
+            {
+                // Only ignore damage-related blacklists (sentry, sticky, enemy)
+                if (entry.second.value != SENTRY && 
+                    entry.second.value != STICKY && 
+                    entry.second.value != ENEMY_NORMAL && 
+                    entry.second.value != ENEMY_DORMANT)
+                {
+                    found_non_damage = true;
+                    break;
+                }
+            }
+        }
+        
+        // Only block blacklist if we're not in a non-damage blacklisted area
+        map->free_blacklist_blocked = !found_non_damage;
+        if (!found_non_damage)
+            map->pather.Reset();
         return;
     }
+    
     CNavArea *local_area = map->findClosestNavSquare(g_pLocalPlayer->v_Origin);
     for (auto const &entry : map->free_blacklist)
     {

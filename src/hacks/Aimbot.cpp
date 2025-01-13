@@ -508,7 +508,7 @@ static void CreateMove()
 
     doAutoZoom(false);
     if (hacks::tf2::antianticheat::enabled)
-        fov = std::min(fov > 0.0f ? fov : FLT_MAX, 10.0f);
+        fov = std::fmin(fov > 0.0f ? fov : FLT_MAX, 10.0f);
     bool should_backtrack    = hacks::tf2::backtrack::backtrackEnabled();
     int get_weapon_mode      = g_pLocalPlayer->weapon_mode;
     projectile_mode          = false;
@@ -1179,7 +1179,8 @@ AimbotTarget_t GetTarget(CachedEntity *entity)
                 AngleVectors3(angl, &fwd, &right, &up);
                 // I have no clue why this is 200.0f, No where in the SDK explains this.
                 // It appears to work though
-                Vector vel = 0.9f * ((fwd * cur_proj_speed) + (up * 200.0f));
+                Vector vel = fwd * cur_proj_speed + up * 200.0f;
+                vel *= 0.9f;
                 fwd.z      = 0.0f;
                 fwd.NormalizeInPlace();
                 float alongvel = std::sqrt(vel.x * vel.x + vel.y * vel.y);
@@ -1458,7 +1459,7 @@ Vector PredictEntity(AimbotTarget_t& target)
         // NPCs (Skeletons, merasmus, etc)
     case ENTITY_NPC:
     {
-        result = target.ent->hitboxes.GetHitbox(std::max(0, target.ent->hitboxes.GetNumHitboxes() / 2 - 1))->center;
+        result = target.ent->hitboxes.GetHitbox(std::fmax(0, target.ent->hitboxes.GetNumHitboxes() / 2 - 1))->center;
         break;
     }
 
