@@ -15,7 +15,7 @@ and a lot of useful features, including
 * Anti Backstab with option to use "No" voice command when spy tries to backstab you
 * Extremely customizable spam (you can make spam lines that'll include name of random dead enemy pyro or sniper)
 * Follow Bots
-* Navparser Bots (Walkbots that can walk on any map without manual configuration)
+* Navparser Bots (Walkbots that can walk on any map without manual configuration using tf2 official navmesh system)
 * Working crit hack (Editors note: Not fully working on all weapons)
 * Backtrack
 * Automatic matchmaking
@@ -43,4 +43,4 @@ Do you want to submit code to cathook? Please read `CONTRIBUTING.md` for a short
 
 ## Risk of VAC detection
 
-The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned.
+The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned. However, the detection chance is around 0.
