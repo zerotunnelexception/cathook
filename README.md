@@ -9,9 +9,6 @@ Cathook is a training software designed for Team Fortress 2 for Linux. Cathook i
 * Sandvich aimbot
 * Autotaunt
 
-
-Also there's a chance to get manually gamebanned by Valve (not caused by cheat itself)
-
 and a lot of useful features, including
 
 * Working hitscan nospread
@@ -47,3 +44,5 @@ Do you want to submit code to cathook? Please read `CONTRIBUTING.md` for a short
 ## Risk of VAC detection
 
 The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned. However, the detection chance is around 0.
+
+Also *there's* a chance to get manually gamebanned by Valve (not caused by cheat itself)
