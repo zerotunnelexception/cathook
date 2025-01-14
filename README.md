@@ -1,5 +1,5 @@
 # Cathook 32bit Training Software
-![banner](https://user-images.githubusercontent.com/13179138/134817300-d4865695-af33-4e83-a017-5ec0d31ea0a1.png)
+![banner](https://i.ibb.co/FHM2JXY/cathook.png)
 
 ## Overview
 
@@ -44,3 +44,5 @@ Do you want to submit code to cathook? Please read `CONTRIBUTING.md` for a short
 The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned. However, the detection chance is around 0.
 
 *Also there's a chance to get manually gamebanned by Valve (not caused by cheat itself)*
+
+// https://user-images.githubusercontent.com/13179138/134817300-d4865695-af33-4e83-a017-5ec0d31ea0a1.png
