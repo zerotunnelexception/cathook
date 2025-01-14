@@ -11,17 +11,15 @@ Cathook is a training software designed for Team Fortress 2 for Linux. Cathook i
 
 and a lot of useful features, including
 
-* Working hitscan nospread
+* Working hitscan and projectile nospread
 * Anti Backstab with option to use "No" voice command when spy tries to backstab you
 * Extremely customizable spam (you can make spam lines that'll include name of random dead enemy pyro or sniper)
 * Follow Bots
-* Navparser Bots (Walkbots that can walk on any map without manual configuration using tf2 official navmesh system)
+* Navparser Bots (bots that can walk on any map without manual configuration using tf2 official navmesh system)
 * Working crit hack (Editors note: Not fully working on all weapons)
 * Backtrack
 * Automatic matchmaking
 * And many more features!
-
-[FULL LIST OF FEATURES HERE](https://pastebin.com/wAjwFnDK)
 
 # Installing, updating, attaching (injecting)
 
