@@ -1,4 +1,4 @@
-# Cathook Training Software
+# Cathook 32bit Training Software
 ![banner](https://user-images.githubusercontent.com/13179138/134817300-d4865695-af33-4e83-a017-5ec0d31ea0a1.png)
 
 ## Overview
@@ -7,7 +7,10 @@ Cathook is a training software designed for Team Fortress 2 for Linux. Cathook i
 
 * Ignore Hoovy
 * Sandvich aimbot
-* Chance to get manually gamebanned by Valve (not an cheat issue)
+* Autotaunt
+
+
+Also there's a chance to get manually gamebanned by Valve (not caused by cheat itself)
 
 and a lot of useful features, including
 
