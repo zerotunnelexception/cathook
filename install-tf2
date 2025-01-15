@@ -1,0 +1,238 @@
+#!/bin/bash
+
+# Function to detect the Linux distribution
+detect_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "$ID"
+    elif [ -f /etc/arch-release ]; then
+        echo "arch"
+    elif [ -f /etc/debian_version ]; then
+        echo "debian"
+    elif [ -f /etc/fedora-release ]; then
+        echo "fedora"
+    else
+        echo "unknown"
+    fi
+}
+
+# Function to install pv if missing
+ensure_pv_installed() {
+    if ! command -v pv >/dev/null 2>&1; then
+        print_colored "blue" "Installing pv package for progress bars..."
+        local distro=$(detect_distro)
+        case "$distro" in
+            "manjaro"|"arch")
+                sudo pacman -S --needed pv
+                ;;
+            "ubuntu"|"debian")
+                sudo apt-get update
+                sudo apt-get install -y pv
+                ;;
+            "fedora")
+                sudo dnf install -y pv
+                ;;
+            *)
+                print_colored "red" "Could not install pv. Progress bars will be disabled."
+                return 1
+                ;;
+        esac
+    fi
+    return 0
+}
+
+# Function to install packages based on distribution
+install_dependencies() {
+    local distro=$(detect_distro)
+    echo "Detected distribution: $distro"
+    
+    case "$distro" in
+        "manjaro"|"arch")
+            sudo pacman -S --needed lib32-openal openal lib32-libcurl-gnutls libcurl-gnutls lib32-fontconfig fontconfig lib32-freetype2 freetype2 pv
+            ;;
+        "ubuntu"|"debian")
+            sudo apt-get update
+            sudo apt-get install -y libopenal1:i386 libopenal1 libcurl4:i386 libcurl4 libfontconfig1:i386 libfontconfig1 libfreetype6:i386 libfreetype6 pv
+            ;;
+        "fedora")
+            sudo dnf install -y openal-soft.i686 openal-soft libcurl.i686 libcurl fontconfig.i686 fontconfig freetype.i686 freetype pv
+            ;;
+        *)
+            echo "Unsupported distribution. Please install the required packages manually:"
+            echo "- openal (32-bit and 64-bit)"
+            echo "- libcurl (32-bit and 64-bit)"
+            echo "- fontconfig (32-bit and 64-bit)"
+            echo "- freetype2 (32-bit and 64-bit)"
+            echo "- pv (for progress bars)"
+            exit 1
+            ;;
+    esac
+}
+
+# Function to find TF2 installation directory
+find_tf2_dir() {
+    local default_paths=(
+        "$HOME/.steam/steam/steamapps/common/Team Fortress 2"
+        "$HOME/.local/share/Steam/steamapps/common/Team Fortress 2"
+        "$HOME/Steam/steamapps/common/Team Fortress 2"
+    )
+
+    for path in "${default_paths[@]}"; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Function to find Steam userdata directory
+find_steam_userdata() {
+    local default_paths=(
+        "$HOME/.steam/steam/userdata"
+        "$HOME/.local/share/Steam/userdata"
+        "$HOME/Steam/userdata"
+    )
+
+    for path in "${default_paths[@]}"; do
+        if [ -d "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Function to create Steam shortcut
+create_steam_shortcut() {
+    local tf2_dir="$1"
+    local steam_userdata=$(find_steam_userdata)
+    
+    if [ -z "$steam_userdata" ]; then
+        print_colored "red" "Could not find Steam userdata directory. Skipping shortcut creation."
+        return 1
+    fi
+
+    # Find the first user directory (usually there's only one)
+    local user_dir=$(ls "$steam_userdata" | head -n 1)
+    if [ -z "$user_dir" ]; then
+        print_colored "red" "Could not find Steam user directory. Skipping shortcut creation."
+        return 1
+    fi
+
+    local shortcuts_file="$steam_userdata/$user_dir/config/shortcuts.vdf"
+    local hl2_path="$tf2_dir/hl2.sh"
+
+    if [ ! -f "$hl2_path" ]; then
+        print_colored "red" "Could not find hl2.sh. Skipping shortcut creation."
+        return 1
+    fi
+
+    # Create shortcuts.vdf if it doesn't exist
+    if [ ! -f "$shortcuts_file" ]; then
+        mkdir -p "$(dirname "$shortcuts_file")"
+        echo -ne "shortcuts\n{\n}\n" > "$shortcuts_file"
+    fi
+
+    print_colored "blue" "Adding Steam shortcut with custom launch options..."
+    
+    # Backup original shortcuts file
+    cp "$shortcuts_file" "${shortcuts_file}.backup"
+
+    # Add new shortcut entry
+    local launch_options="-game tf -steam -windowed -w 1920 -h 1080 -console -novid -nojoy -high"
+    local shortcut_name="Team Fortress 2 x32"
+    
+    # Create a new shortcuts.vdf with our entry
+    cat > "$shortcuts_file" << EOF
+shortcuts
+{
+  "0"
+  {
+    AppName    "$shortcut_name"
+    Exe        "$hl2_path"
+    StartDir   "$tf2_dir"
+    LaunchOptions    "$launch_options"
+    IsHidden    "0"
+    AllowDesktopConfig    "1"
+    AllowOverlay    "1"
+    OpenVR    "0"
+    Devkit    "0"
+    DevkitGameID    ""
+    LastPlayTime    "0"
+  }
+}
+EOF
+
+    print_colored "green" "Steam shortcut created successfully!"
+    print_colored "blue" "Note: You may need to restart Steam to see the new shortcut."
+}
+
+# Print colored text
+print_colored() {
+    local color=$1
+    local text=$2
+    case $color in
+        "green") echo -e "\033[32m${text}\033[0m" ;;
+        "blue") echo -e "\033[34m${text}\033[0m" ;;
+        "red") echo -e "\033[31m${text}\033[0m" ;;
+        *) echo "${text}" ;;
+    esac
+}
+
+# Main script
+print_colored "blue" "Installing required dependencies..."
+install_dependencies
+
+# Try to install pv if missing (although it should be installed by install_dependencies)
+ensure_pv_installed
+PV_AVAILABLE=$?
+
+print_colored "blue" "Downloading TF2 files..."
+temp_dir=$(mktemp -d)
+wget --progress=bar:force:noscroll https://cdn.cathook.org/goyslop/tf32.zip -O "$temp_dir/tf32.zip" 2>&1 | stdbuf -o0 tr '\r' '\n' | grep -o '[0-9]*%'
+
+if [ $? -ne 0 ]; then
+    print_colored "red" "Failed to download tf32.zip"
+    rm -rf "$temp_dir"
+    exit 1
+fi
+
+# Find TF2 directory
+tf2_dir=$(find_tf2_dir)
+
+if [ -z "$tf2_dir" ]; then
+    echo "TF2 isn't installed, or couldn't find the installation directory."
+    echo "Please either install TF2 or manually specify the path."
+    echo "The path should look like: ~/.steam/steam/steamapps/common/Team Fortress 2/"
+    read -p "Enter TF2 path (or press Ctrl+C to cancel): " tf2_dir
+    
+    if [ ! -d "$tf2_dir" ]; then
+        print_colored "red" "Invalid directory!"
+        rm -rf "$temp_dir"
+        exit 1
+    fi
+fi
+
+print_colored "blue" "Found TF2 directory: $tf2_dir"
+print_colored "blue" "Extracting files..."
+
+# Use pv if available, otherwise use regular unzip
+if [ $PV_AVAILABLE -eq 0 ] && command -v pv >/dev/null 2>&1; then
+    unzip -o "$temp_dir/tf32.zip" -d "$tf2_dir" | pv -l -s $(unzip -l "$temp_dir/tf32.zip" | tail -n 1 | awk '{print $2}') > /dev/null
+else
+    unzip -o "$temp_dir/tf32.zip" -d "$tf2_dir"
+fi
+
+if [ $? -eq 0 ]; then
+    print_colored "green" "Installation completed successfully!"
+    # Create Steam shortcut
+    create_steam_shortcut "$tf2_dir"
+else
+    print_colored "red" "Failed to extract files to TF2 directory!"
+fi
+
+# Cleanup
+rm -rf "$temp_dir" 
