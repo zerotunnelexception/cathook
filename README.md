@@ -1,4 +1,4 @@
-# Cathook 32bit Training Software (the immortal software)
+# Cathook 32x Training Software
 ![banner](https://i.ibb.co/FHM2JXY/cathook.png)
 
 ## Overview
