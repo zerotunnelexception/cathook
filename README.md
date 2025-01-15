@@ -1,4 +1,4 @@
-# Cathook 32bit Training Software
+# Cathook 32bit Training Software (the immortal software)
 ![banner](https://i.ibb.co/FHM2JXY/cathook.png)
 
 ## Overview
@@ -23,6 +23,9 @@ and a lot of useful features, including
 
 # Installing, updating, attaching (injecting)
 
+If its your first time installing cathook, please use the ./fresh-start script.
+(it will automatically install needed depencies, tf2 32bit and navmeshes)
+Then start tf2 32bit and attach cathook (by "sudo ./attach")
 [View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q) <-- outdated 
 
 ## Community
