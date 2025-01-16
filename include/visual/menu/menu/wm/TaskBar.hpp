@@ -35,7 +35,8 @@ public:
 
     void addWindowButton(WMWindow &window);
 
-    //
+protected:
+    void updateLocation();
 
     WindowManager &wm;
 };
