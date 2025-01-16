@@ -1,4 +1,4 @@
-# Cathook 32bit Training Software (the immortal software)
+# Cathook 32x Training Software
 ![banner](https://i.ibb.co/FHM2JXY/cathook.png)
 
 ## Overview
@@ -29,10 +29,13 @@ Then start tf2 32bit and attach cathook (by "sudo ./attach")
 [View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q) <-- outdated 
 
 ## Community
-
 Join our Telegram groups:
 - [Chat](https://t.me/cathookcom)
 - [Announcements](https://t.me/cathookmel)
+## Yes, its still alive after official "death"
+
+ill maintain this cheat until it will be unpossible or better one/ch2 will be released.
+9 year history cant be lost.
 
 ## Reporting Issues
 
