@@ -29,7 +29,8 @@ Then start tf2 32bit and attach cathook (by "sudo ./attach")
 [View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q) <-- outdated 
 
 ## Community
-
+*melody's note: ill maintain this cheat until it will be unpossible or better one/ch2 will be released.
+9 year history cant be lost.
 Join our Telegram groups:
 - [Chat](https://t.me/cathookcom)
 - [Announcements](https://t.me/cathookmel)
