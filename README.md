@@ -32,7 +32,7 @@ Then start tf2 32bit and attach cathook (by "sudo ./attach")
 Join our Telegram groups:
 - [Chat](https://t.me/cathookcom)
 - [Announcements](https://t.me/cathookmel)
-## Yes, its stil alive after official "death"
+## Yes, its still alive after official "death"
 
 ill maintain this cheat until it will be unpossible or better one/ch2 will be released.
 9 year history cant be lost.
