@@ -11,6 +11,10 @@ detect_distro() {
         echo "debian"
     elif [ -f /etc/fedora-release ]; then
         echo "fedora"
+    elif [ -f /etc/gentoo-release ]; then
+        echo "gentoo"
+    elif [ -f /etc/void-release ]; then
+        echo "void"
     else
         echo "unknown"
     fi
@@ -31,6 +35,12 @@ ensure_pv_installed() {
                 ;;
             "fedora")
                 sudo dnf install -y pv
+                ;;
+            "gentoo")
+                sudo emerge -av sys-apps/pv
+                ;;
+            "void")
+                sudo xbps-install -Sy pv
                 ;;
             *)
                 print_colored "red" "Could not install pv. Progress bars will be disabled."
@@ -56,6 +66,14 @@ install_dependencies() {
             ;;
         "fedora")
             sudo dnf install -y openal-soft.i686 openal-soft libcurl.i686 libcurl fontconfig.i686 fontconfig freetype.i686 freetype pv
+            ;;
+        "gentoo")
+            sudo emerge -av media-libs/openal net-misc/curl media-libs/fontconfig media-libs/freetype sys-apps/pv
+            # Note: Gentoo users might need to enable multilib support and emerge 32-bit versions separately
+            print_colored "yellow" "Note: You may need to enable multilib support and emerge 32-bit versions manually"
+            ;;
+        "void")
+            sudo xbps-install -Sy openal openal-32bit libcurl libcurl-32bit fontconfig fontconfig-32bit freetype freetype-32bit pv
             ;;
         *)
             echo "Unsupported distribution. Please install the required packages manually:"
