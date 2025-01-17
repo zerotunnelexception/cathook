@@ -26,7 +26,7 @@ and a lot of useful features, including
 If its your first time installing cathook, please use the ./fresh-start script.
 (it will automatically install needed depencies, tf2 32bit and navmeshes)
 Then start tf2 32bit and attach cathook (by "sudo ./attach")
-[View our short guide to installing and using cathook](https://youtu.be/iCz-3kYWJ5Q) <-- outdated 
+[View our short guide to installing and using cathook](https://cathook.org/docs) 
 
 ## Community
 Join our Telegram groups:
@@ -40,6 +40,7 @@ ill maintain this cheat until it will be unpossible or better one/ch2 will be re
 ## Reporting Issues
 
 If some things doesn't work as expected, please open issues on GitHub using [this page](https://github.com/mlemlody/cathook/issues).
+or u can use [our website](https://cathook.org/support).
 
 ## Contributing
 
