@@ -46,7 +46,7 @@ echo
 run_script "install-tf2" "TF2 x32 installation"
 
 # Run navmesh-install
-run_script "navmesh-install" "navmesh installation"
+run_script "install-navmesh" "navmesh installation"
 
 # Run install-all
 run_script "install-all" "cathook installation"
