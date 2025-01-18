@@ -23,6 +23,16 @@ static settings::Boolean auto_disguise{ "misc.autodisguise", "true" };
 static settings::Int abandon_if_ipc_bots_gte{ "cat-bot.abandon-if.ipc-bots-gte", "0" };
 static settings::Int abandon_if_humans_lte{ "cat-bot.abandon-if.humans-lte", "0" };
 static settings::Int abandon_if_players_lte{ "cat-bot.abandon-if.players-lte", "0" };
+static settings::Boolean abandon_instead_of_requeue{ "cat-bot.abandon-instead-of-requeue", "false" };
+static settings::Int abandon_delay{ "cat-bot.abandon-delay", "5000" };
+
+// Delay timers for each condition
+static Timer ipc_bots_delay{};
+static Timer humans_delay{};
+static Timer players_delay{};
+static bool ipc_timer_active = false;
+static bool humans_timer_active = false;
+static bool players_timer_active = false;
 
 static settings::Boolean micspam{ "cat-bot.micspam.enable", "false" };
 static settings::Int micspam_on{ "cat-bot.micspam.interval-on", "3" };
@@ -848,14 +858,31 @@ void update()
                 // Only quit if you are the player with the lowest ipc id
                 if (quit_id == local_ipcid)
                 {
+                    if (!ipc_timer_active)
+                    {
+                        ipc_timer_active = true;
+                        ipc_bots_delay.update();
+                        return;
+                    }
+                    
+                    if (!ipc_bots_delay.check(*abandon_delay))
+                        return;
+                        
                     // Clear blacklist related stuff
                     waiting_for_quit_bool = false;
                     ipc_blacklist.clear();
+                    ipc_timer_active = false;
 
-                    logging::Info("Abandoning because there are %d local players "
+                    logging::Info("Requeueing because there are %d local players "
                                   "in game, and abandon_if_ipc_bots_gte is %d.",
                                   count_ipc, int(abandon_if_ipc_bots_gte));
-                    tfmm::abandon();
+                    if (*abandon_instead_of_requeue)
+                        tfmm::abandon();
+                    else
+                    {
+                        tfmm::leaveQueue();
+                        tfmm::startQueueStandby();
+                    }
                     return;
                 }
                 else
@@ -889,23 +916,59 @@ void update()
         {
             if (count_total - count_ipc <= int(abandon_if_humans_lte))
             {
-                logging::Info("Abandoning because there are %d non-bots in "
+                if (!humans_timer_active)
+                {
+                    humans_timer_active = true;
+                    humans_delay.update();
+                    return;
+                }
+                
+                if (!humans_delay.check(*abandon_delay))
+                    return;
+                    
+                humans_timer_active = false;
+                logging::Info("Requeueing because there are %d non-bots in "
                               "game, and abandon_if_humans_lte is %d.",
                               count_total - count_ipc, int(abandon_if_humans_lte));
-                tfmm::abandon();
+                if (*abandon_instead_of_requeue)
+                    tfmm::abandon();
+                else
+                {
+                    tfmm::leaveQueue();
+                    tfmm::startQueueStandby();
+                }
                 return;
             }
+            humans_timer_active = false;
         }
         if (abandon_if_players_lte)
         {
             if (count_total <= int(abandon_if_players_lte))
             {
+                if (!players_timer_active)
+                {
+                    players_timer_active = true;
+                    players_delay.update();
+                    return;
+                }
+                
+                if (!players_delay.check(*abandon_delay))
+                    return;
+                    
+                players_timer_active = false;
                 logging::Info("Abandoning because there are %d total players "
                               "in game, and abandon_if_players_lte is %d.",
                               count_total, int(abandon_if_players_lte));
-                tfmm::abandon();
+                if (*abandon_instead_of_requeue)
+                    tfmm::abandon();
+                else
+                {
+                    tfmm::leaveQueue();
+                    tfmm::startQueueStandby();
+                }
                 return;
             }
+            players_timer_active = false;
         }
     }
 }
