@@ -4,13 +4,27 @@
 detect_distro() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
-        echo "$ID"
+        case "$ID" in
+            "garuda")
+                echo "arch"  # Garuda is Arch-based
+                ;;
+            "linuxmint"|"ubuntu")
+                echo "debian"  # Mint and Ubuntu are Debian-based
+                ;;
+            *)
+                echo "$ID"
+                ;;
+        esac
     elif [ -f /etc/arch-release ]; then
         echo "arch"
     elif [ -f /etc/debian_version ]; then
         echo "debian"
     elif [ -f /etc/fedora-release ]; then
         echo "fedora"
+    elif [ -f /etc/gentoo-release ]; then
+        echo "gentoo"
+    elif [ -f /etc/void-release ]; then
+        echo "void"
     else
         echo "unknown"
     fi

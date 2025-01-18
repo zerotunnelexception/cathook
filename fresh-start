@@ -42,6 +42,9 @@ run_script() {
 print_colored "blue" "Starting fresh installation process..."
 echo
 
+# Run install-sound
+run_script "install-sound" "audio dependencies installation"
+
 # Run install-tf2
 run_script "install-tf2" "TF2 x32 installation"
 
