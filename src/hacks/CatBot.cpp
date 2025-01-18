@@ -879,7 +879,9 @@ void update()
                     if (*abandon_instead_of_requeue)
                         tfmm::abandon();
                     else
-                        tfmm::startQueueStandby();
+                    {
+                        tfmm::startQueue();
+                    }
                     return;
                 }
                 else
@@ -930,7 +932,9 @@ void update()
                 if (*abandon_instead_of_requeue)
                     tfmm::abandon();
                 else
-                    tfmm::startQueueStandby();
+                {
+                    tfmm::startQueue();
+                }
                 return;
             }
             humans_timer_active = false;
@@ -956,7 +960,9 @@ void update()
                 if (*abandon_instead_of_requeue)
                     tfmm::abandon();
                 else
-                    tfmm::startQueueStandby();
+                {
+                    tfmm::startQueue();
+                }
                 return;
             }
             players_timer_active = false;
