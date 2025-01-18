@@ -117,7 +117,7 @@ if [ -z "$tf2_dir" ]; then
 fi
 
 # Check if tf directory exists
-tf_dir="$tf2_dir/tf"
+tf_dir="$tf2_dir/tf/maps"
 if [ ! -d "$tf_dir" ]; then
     print_colored "red" "Could not find tf directory in $tf2_dir"
     rm -rf "$temp_dir"
