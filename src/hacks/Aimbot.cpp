@@ -62,7 +62,8 @@ static settings::Boolean auto_spin_up{ "aimbot.auto.spin-up", "0" };
 static settings::Boolean minigun_tapfire{ "aimbot.auto.tapfire", "false" };
 static settings::Boolean auto_zoom{ "aimbot.auto.zoom", "0" };
 static settings::Boolean auto_unzoom{ "aimbot.auto.unzoom", "0" };
-static settings::Int zoom_distance{ "aimbot.zoom.distance", "1250" }; // that's default zoom distance
+static settings::Int zoom_distance{ "aimbot.zoom.distance", "1250" };
+static settings::Int rev_distance{ "aimbot.rev.distance", "500" };
 
 static settings::Boolean backtrackAimbot{ "aimbot.backtrack", "0" };
 static settings::Boolean backtrackLastTickOnly("aimbot.backtrack.only-last-tick", "true");
@@ -469,6 +470,15 @@ void doAutoZoom(bool target_found)
 
     // Keep track of our zoom time
     static Timer zoomTime{};
+
+        // rev distance
+    if (LOCAL_W->m_iClassID() == CL_CLASS(CTFMinigun) && (target_found || nearest.second <= *rev_distance))
+    {
+        if (target_found)
+            zoom_time.update();
+        if (!g_pLocalPlayer->bRevved || !g_pLocalPlayer->bRevving)
+            current_user_cmd->buttons |= IN_ATTACK2;
+    }
 
     // Minigun spun up handler
     if (auto_spin_up && g_pLocalPlayer->weapon()->m_iClassID() == CL_CLASS(CTFMinigun))
