@@ -296,6 +296,8 @@ scripts/updater-preferences
 # Amalgam folder
 src/Amalgam/
 Amalgam/
+src/seo64paste/
+seo64paste/
 
 _deps/
 

@@ -20,7 +20,18 @@ std::array<CachedEntity *, 32> sniperdot_array;
 struct PlayerResolverData {
     bool resolved;
     float resolved_yaw;
-    PlayerResolverData() : resolved(false), resolved_yaw(0.0f) {}
+    bool is_fake;
+    int resolve_type;
+    float original_yaw;
+    float last_delta;
+    int missed_shots;
+    float last_simtime;
+    float avg_delta;
+    int delta_samples;
+    bool has_hit;
+    PlayerResolverData() : resolved(false), resolved_yaw(0.0f), is_fake(false), resolve_type(0), 
+                          original_yaw(0.0f), last_delta(0.0f), missed_shots(0), last_simtime(0.0f),
+                          avg_delta(0.0f), delta_samples(0), has_hit(false) {}
 };
 static std::array<PlayerResolverData, MAX_PLAYERS> player_resolver_data;
 
@@ -72,52 +83,169 @@ void frameStageNotify(ClientFrameStage_t stage)
 
 static std::array<float, 8> yaw_resolves{ 0.0f, 180.0f, 90.0f, -90.0f, 45.0f, -45.0f, 135.0f, -135.0f };
 
-static float resolveAngleYaw(float angle, brutedata &brute)
-{
-    brute.original_angle.y = angle;
-    while (angle > 180)
-        angle -= 360;
 
-    while (angle < -180)
-        angle += 360;
+bool IsAntiAiming(CachedEntity* entity) {
+    if (!entity || entity->m_Type() != ENTITY_PLAYER)
+        return false;
+
+    auto& data = player_resolver_data[entity->m_IDX];
+    float simtime = CE_FLOAT(entity, netvar.m_flSimulationTime);
+    
+    // Skip if player hasn't moved/updated
+    if (simtime == data.last_simtime)
+        return data.is_fake;
+        
+    data.last_simtime = simtime;
+    
+    // Get current angles
+    Vector angles = CE_VECTOR(entity, netvar.m_angEyeAngles);
+    float curr_yaw = angles.y;
+    
+    // Normalize angles
+    while (curr_yaw > 180) curr_yaw -= 360;
+    while (curr_yaw < -180) curr_yaw += 360;
+
+    // Calculate delta from previous
+    float delta = std::abs(curr_yaw - data.original_yaw);
+    if (delta > 180) delta = 360 - delta;
+    
+    // Update average delta
+    if (data.delta_samples < 10) {
+        data.avg_delta = (data.avg_delta * data.delta_samples + delta) / (data.delta_samples + 1);
+        data.delta_samples++;
+    } else {
+        data.avg_delta = data.avg_delta * 0.9f + delta * 0.1f;
+    }
+    
+    data.original_yaw = curr_yaw;
+    data.last_delta = delta;
+
+    // Detect anti-aim patterns
+    bool is_aa = false;
+    
+    // Large consistent angle changes
+    if (data.avg_delta > 90.0f && data.delta_samples >= 5)
+        is_aa = true;
+        
+    // Snap changes > 140 degrees
+    if (delta > 140.0f)
+        is_aa = true;
+        
+    // Detect spin
+    static float last_angles[MAX_PLAYERS];
+    static int spin_count[MAX_PLAYERS];
+    
+    if (std::abs(curr_yaw - last_angles[entity->m_IDX]) > 30.0f) {
+        spin_count[entity->m_IDX]++;
+    } else {
+        spin_count[entity->m_IDX] = 0;
+    }
+    
+    last_angles[entity->m_IDX] = curr_yaw;
+    
+    if (spin_count[entity->m_IDX] >= 3)
+        is_aa = true;
+
+    // Only mark as AA if we've seen enough samples
+    if (data.delta_samples >= 3)
+        data.is_fake = is_aa;
+        
+    return data.is_fake;
+}
+
+static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity)
+{
+    if (!entity || !IsAntiAiming(entity))
+        return angle;
+        
+    auto& data = player_resolver_data[entity->m_IDX];
+    brute.original_angle.y = angle;
+    
+    // Normalize
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
 
     // If we've hit the target enough times with this angle, keep using it
-    if (brute.hits_in_a_row >= *min_hits)
+    if (brute.hits_in_a_row >= *min_hits && data.has_hit) {
+        data.resolved = true;
+        data.resolved_yaw = brute.new_angle.y;
         return brute.new_angle.y;
-        
-    // Different modes have different strategies
+    }
+
+    // Different resolve modes
     switch (*resolver_mode) 
     {
-    case 0: // Aggressive - try all angles quickly
+    case 0: // Smart - Analyze patterns
     {
-        int entry = (brute.brutenum % yaw_resolves.size());
-        angle += yaw_resolves[entry];
+        if (data.avg_delta > 150.0f) {
+            // Likely 180 flip
+            angle += 180.0f;
+        }
+        else if (data.avg_delta > 30.0f && data.avg_delta < 60.0f) {
+            // Likely jitter, alternate between original and inverse
+            if (brute.brutenum % 2)
+                angle += data.avg_delta;
+            else 
+                angle -= data.avg_delta;
+        }
+        else {
+            // Try common angles based on misses
+            float resolve_angles[] = { 0.0f, 180.0f, 90.0f, -90.0f };
+            angle += resolve_angles[brute.brutenum % 4];
+        }
         break;
     }
-    case 1: // Adaptive - base on success rate
+    case 1: // Adaptive
     {
-        int entry = (int)std::floor((brute.brutenum / 2.0f)) % yaw_resolves.size();
-        if (brute.hits_in_a_row > 0)
-            entry = brute.last_successful_angle;
-        angle += yaw_resolves[entry];
+        if (data.has_hit) {
+            // Use previously successful angle
+            angle = data.resolved_yaw;
+        }
+        else {
+            // Increment angle by misses
+            float increment = 45.0f * (data.missed_shots % 8);
+            angle += increment;
+        }
         break;
     }
-    case 2: // Conservative - change angles slowly
+    case 2: // Brute force
     {
-        int entry = (int)std::floor((brute.brutenum / 4.0f)) % yaw_resolves.size();
-        angle += yaw_resolves[entry];
+        const float angles[] = { 0.0f, 180.0f, 90.0f, -90.0f, 45.0f, -45.0f, 135.0f, -135.0f };
+        angle += angles[brute.brutenum % 8];
         break;
     }
     }
 
-    while (angle > 180)
-        angle -= 360;
-
-    while (angle < -180)
-        angle += 360;
-        
+    // Normalize result
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
+    
     brute.new_angle.y = angle;
+    data.resolved_yaw = angle;
+    data.resolved = true;
+    
     return angle;
+}
+
+void OnHit(CachedEntity* target) {
+    if (!target || target->m_Type() != ENTITY_PLAYER)
+        return;
+        
+    auto& data = player_resolver_data[target->m_IDX];
+    data.has_hit = true;
+    data.missed_shots = 0;
+}
+
+void OnMiss(CachedEntity* target) {
+    if (!target || target->m_Type() != ENTITY_PLAYER)
+        return;
+        
+    auto& data = player_resolver_data[target->m_IDX];
+    data.missed_shots++;
+    
+    if (data.missed_shots > 4) {
+        data.has_hit = false;
+    }
 }
 
 static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
@@ -145,7 +273,7 @@ static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
         }
     }
     
-    // Enhanced pitch resolver based on mode
+
     if (sniper_dot == nullptr)
     {
         switch (*resolver_mode)
@@ -224,7 +352,7 @@ void increaseBruteNum(int idx)
         data.hits_in_a_row = 0;
         auto &angle        = CE_VECTOR(ent, netvar.m_angEyeAngles);
         angle.x            = resolveAnglePitch(data.original_angle.x, data, ent);
-        angle.y            = resolveAngleYaw(data.original_angle.y, data);
+        angle.y            = resolveAngleYaw(data.original_angle.y, data, ent);
         data.new_angle.x   = angle.x;
         data.new_angle.y   = angle.y;
     }
@@ -261,7 +389,7 @@ static void yawHook(const CRecvProxyData *pData, void *pStruct, void *pOut)
     auto client_ent   = (IClientEntity *) (pStruct);
     CachedEntity *ent = ENTITY(client_ent->entindex());
     if (CE_GOOD(ent))
-        *flYaw_out = resolveAngleYaw(flYaw, resolver_map[ent->player_info->friendsID]);
+        *flYaw_out = resolveAngleYaw(flYaw, resolver_map[ent->player_info->friendsID], ent);
 }
 
 // *_ptr points to what we need to modify while *_ProxyFn holds the old value

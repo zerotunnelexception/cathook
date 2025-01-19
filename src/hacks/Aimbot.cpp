@@ -156,27 +156,60 @@ inline bool CarryingHeatmaker()
 // A function to find the best hitbox for a target
 inline int BestHitbox(CachedEntity *target)
 {
-    // Switch based apon the hitbox mode set by the user
     switch (*hitbox_mode)
     {
-    case 0:
-        // AUTO priority
-        return autoHitbox(target);
+    case 0: // AUTO priority
+        {
+            int hitbox = autoHitbox(target);
+            
+            if (g_pLocalPlayer->holding_sniper_rifle && hitbox == hitbox_t::head)
+            {
+                // Get head hitbox
+                auto head = target->hitboxes.GetHitbox(hitbox);
+                if (!head)
+                    return hitbox;
+                    
+                // Calculate more precise aim point for head
+                Vector center = head->center;
+                const float dist = center.DistTo(g_pLocalPlayer->v_Eye);
+                
+                // Dynamic adjustment based on distance and target velocity
+                Vector velocity;
+                velocity::EstimateAbsVelocity(RAW_ENT(target), velocity);
+                float speed = velocity.Length2D();
+                
+                // Adjust aim point based on distance and movement
+                if (dist > 800.0f)
+                {
+                    // Aim slightly higher for long range
+                    center.z += std::min(1.0f, dist / 2000.0f);
+                    
+                    // Lead moving targets slightly
+                    if (speed > 50.0f)
+                    {
+                        Vector normalized = velocity;
+                        normalized.NormalizeInPlace();
+                        center += normalized * std::min(2.0f, speed / 400.0f);
+                    }
+                }
+                
+                // Verify visibility
+                trace_t trace;
+                if (IsEntityVectorVisible(target, center, true, MASK_SHOT_HULL, &trace))
+                {
+                    target->hitboxes.GetHitbox(hitbox)->center = center;
+                }
+            }
+            return hitbox;
+        }
         break;
-    case 1:
-    { // AUTO priority, return closest hitbox to crosshair
+    case 1: // Closest to crosshair
         return ClosestHitbox(target);
-    }
-    break;
-    case 2:
-    { // STATIC priority, return a user chosen hitbox
+    case 2: // Static
         return *hitbox;
-    }
-    break;
     default:
         break;
     }
-    // Hitbox machine :b:roke
     return -1;
 }
 inline float projectileHitboxSize(int projectile_size)
@@ -1262,28 +1295,71 @@ bool Aim(AimbotTarget_t target)
         }
     }
 
-    // Get angles from eye to target
     Vector angles = CalculateAimAngles(g_pLocalPlayer->v_Eye, target.aim_position, LOCAL_E);
-    // Slow aim
+    
     if (slow_aim)
-        DoSlowAim(angles);
+    {
+        QAngle view;
+        g_IEngine->GetViewAngles(view);
+        
+        // Calculate angle delta
+        Vector delta = angles - Vector(view.x, view.y, view.z);
+        fClampAngle(delta);
+        
+        float factor = std::min(1.0f, 1.0f / (slow_aim * 2.5f));
+        angles = Vector(view.x, view.y, view.z) + delta * factor;
+    }
 
 #if ENABLE_VISUALS
     if (target.ent->m_Type() == ENTITY_PLAYER)
         hacks::shared::esp::SetEntityColor(target.ent, colors::target);
 #endif
-    // Set angles
-    current_user_cmd->viewangles = angles;
 
+
+    current_user_cmd->viewangles = angles;
+    
     if (silent && !slow_aim)
         g_pLocalPlayer->bUseSilentAngles = true;
-    // Set tick count to targets (backtrack messes with this)
+        
     if (!shouldBacktrack(target.ent) && nolerp && target.ent->m_IDX <= g_IEngine->GetMaxClients())
         current_user_cmd->tick_count = TIME_TO_TICKS(CE_FLOAT(target.ent, netvar.m_flSimulationTime));
-    aimed_this_tick      = true;
+        
+    aimed_this_tick = true;
     viewangles_this_tick = angles;
-    // Finish function
+    
     return true;
+}
+
+
+Vector CalculateAimAngles(const Vector& eyePosition, const Vector& targetPosition, CachedEntity* localEntity) 
+{
+
+    Vector delta = targetPosition - eyePosition;
+    
+    // Apply micro-adjustments for better head hitbox targeting
+    if (g_pLocalPlayer->weapon_mode == weapon_hitscan && 
+        g_pLocalPlayer->holding_sniper_rifle)
+    {
+        // Fine-tune vertical aim for headshots
+        float dist = targetPosition.DistTo(eyePosition);
+        if (dist > 1000.0f)
+        {
+            // Slight upward adjustment for long range
+            delta.z += 0.5f;
+        }
+    }
+
+    float hyp = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    
+    Vector angles;
+    angles.x = (float)(RAD2DEG(atan2(-delta.z, hyp))); // Pitch 
+    angles.y = (float)(RAD2DEG(atan2(delta.y, delta.x))); // Yaw
+    angles.z = 0.0f;
+
+    // Apply micro-corrections and normalization
+    fClampAngle(angles);
+    
+    return angles;
 }
 
 // A function to check whether player can autoshoot
@@ -1744,17 +1820,6 @@ static InitRoutine EC(
         EC::Register(EC::Draw, DrawText, "DRAW_Aimbot", EC::average);
 #endif
     });
-
-// Enhance aim calculation for better accuracy
-Vector CalculateAimAngles(const Vector& eyePosition, const Vector& targetPosition, CachedEntity* localEntity) {
-    Vector delta = targetPosition - eyePosition;
-    float hyp = sqrt(delta.x * delta.x + delta.y * delta.y);
-    Vector angles;
-    angles.x = atan2(-delta.z, hyp) * (180.0f / M_PI);
-    angles.y = atan2(delta.y, delta.x) * (180.0f / M_PI);
-    angles.z = 0.0f;
-    return angles;
-}
 
 // Improve prediction logic for moving targets
 Vector PredictEntityPosition(CachedEntity* target, float projectileSpeed, float projectileGravity) {
