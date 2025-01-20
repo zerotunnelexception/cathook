@@ -10,19 +10,18 @@
 // 4. No idea how to change it tbh without breaking so ill leave it here for now (melody)
 enum Priority_list
 {
-    mvm_upgrade,
-    engineer,
-    health,
-    ammo,
-    followbot,
-    prio_melee,
-    danger,
-    capture,
+    patrol = 5,
+    lowprio_health,
+    staynear,
     run_reload,
     snipe_sentry,
-    staynear,
-    lowprio_health,
-    patrol = 5
+    ammo,
+    capture,
+    prio_melee,
+    engineer,
+    health,
+    danger,
+    followbot
 };
 
 namespace navparser

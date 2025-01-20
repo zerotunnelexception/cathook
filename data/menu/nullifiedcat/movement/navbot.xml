@@ -9,6 +9,7 @@
             <AutoVariable width="fill" target="nav.vischeck-runtime.delay" label="Vischeck delay" tooltip="Delay between visibility checks in milliseconds"/>
             <AutoVariable width="fill" target="navbot.enabled" label="Enable NavBot"/>
             <AutoVariable width="fill" target="navbot.capture-objectives" label="Capture objectives" tooltip="Automatically capture objectives (CTF, CP, and PL only)."/>
+             <AutoVariable width="fill" target="navbot.defend-while-roaming" label="Defend while roaming" tooltip="Try to defend objectives while roaming around (RECOMMENDED)"/>
             <AutoVariable width="fill" target="navbot.search-health" label="Search health"/>
             <AutoVariable width="fill" target="navbot.search-ammo" label="Search ammo"/>
             <AutoVariable width="fill" target="navbot.escape-danger" label="Escape danger"/>
@@ -26,29 +27,17 @@
                     <Option name="PDA2" value="5"/>
                 </Select>
             </LabeledObject>
-            <AutoVariable width="fill" target="navbot.autojump.enabled" label="Enable autojump"/>
+        </List>
+    </Box>
+    <Box name="NavBot 2" width="content" height="content" padding="12 6 6 6" x="170">
+        <List width="180">
+          <AutoVariable width="fill" target="navbot.autojump.enabled" label="Enable autojump"/>
             <AutoVariable width="fill" target="navbot.autojump.trigger-distance" label="Jump distance"/>
             <AutoVariable width="fill" target="navbot.snipe-sentries" label="Try to target sentries"/>
             <AutoVariable width="fill" target="navbot.snipe-sentries.shortrange" label="Scout/Pyro sentry mode" tooltip="Try to target sentries as scout/pyro aswell. Usually not recommended."/>
             <AutoVariable width="fill" target="nav.nojumppaths" label="Prefer no-jump paths" tooltip="Try to find paths that don't require jumping when possible"/>
             <AutoVariable width="fill" target="nav.safepathing" label="Safe pathing" tooltip="Try to path through safer areas away from edges"/>
             <AutoVariable width="fill" target="navbot.stay-near" label="Stalk enemies" tooltip="Try to outrange as sniper and close distance as scout/heavy"/>
-        </List>
-    </Box>
-    <Box name="HVH NavBot" width="content" height="content" padding="12 6 6 6" x="170">
-        <List width="180">
-            <AutoVariable width="fill" target="navbot.hvh.enable" label="Enable HVH mode" tooltip="Makes the bot play like a HvH player"/>
-            <LabeledObject width="fill" label="HVH mode">
-                <Select target="navbot.hvh.mode">
-                    <Option name="Aggressive" value="1"/>
-                    <Option name="Defensive" value="2"/>
-                </Select>
-            </LabeledObject>
-            <AutoVariable width="fill" target="navbot.hvh.bhop-to-target" label="Bhop to target" tooltip="Use bunnyhopping to reach distant targets faster"/>
-            <AutoVariable width="fill" target="navbot.hvh.bhop-target-distance" label="Bhop distance" tooltip="Distance at which bot will start bunnyhopping to target"/>
-            <AutoVariable width="fill" target="navbot.hvh.safe-peek" label="Safe peeking" tooltip="Don't expose real hitbox immediately when peeking"/>
-            <AutoVariable width="fill" target="navbot.hvh.prefer-highground" label="Prefer highground" tooltip="Try to maintain height advantage over enemies"/>
-            <AutoVariable width="fill" target="navbot.hvh.ignore-objectives" label="Ignore objectives" tooltip="Focus on killing enemies instead of objectives"/>
         </List>
     </Box>
     <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="170" y="128">
