@@ -6,6 +6,36 @@
 #include "hacks/AntiAntiAim.hpp"
 #include "sdk/dt_recv_redef.h"
 
+
+void VectorAngles(const Vector &forward, QAngle &angles)
+{
+    float tmp, yaw, pitch;
+
+    if (forward[1] == 0 && forward[0] == 0)
+    {
+        yaw = 0;
+        if (forward[2] > 0)
+            pitch = 270;
+        else
+            pitch = 90;
+    }
+    else
+    {
+        yaw = (atan2(forward[1], forward[0]) * 180 / M_PI);
+        if (yaw < 0)
+            yaw += 360;
+
+        tmp = sqrt(forward[0] * forward[0] + forward[1] * forward[1]);
+        pitch = (atan2(-forward[2], tmp) * 180 / M_PI);
+        if (pitch < 0)
+            pitch += 360;
+    }
+
+    angles[0] = pitch;
+    angles[1] = yaw;
+    angles[2] = 0;
+}
+
 namespace hacks::shared::anti_anti_aim
 {
 static settings::Boolean enable{ "anti-anti-aim.enable", "false" };
@@ -100,33 +130,32 @@ bool IsAntiAiming(CachedEntity* entity) {
     auto& data = player_resolver_data[entity->m_IDX];
     float simtime = CE_FLOAT(entity, netvar.m_flSimulationTime);
     
-    // Skip if player hasn't moved/updated
     if (simtime == data.last_simtime)
         return data.is_fake;
         
     data.last_simtime = simtime;
     
-    // Get current angles and velocity
+    // Get current angles
     Vector angles = CE_VECTOR(entity, netvar.m_angEyeAngles);
+    float curr_pitch = angles.x;
     float curr_yaw = angles.y;
     
-    Vector velocity;
-    velocity::EstimateAbsVelocity(RAW_ENT(entity), velocity);
-    QAngle vel_angles;
-    VectorAngles(velocity, vel_angles);
-    float velocity_yaw = vel_angles.y;
+    // Check for rage anti-aim first (pitch check)
+    if (curr_pitch <= -89.0f || curr_pitch >= 89.0f)
+    {
+        data.is_fake = true;
+        data.resolve_type = 2; // Rage AA
+        data.aa_type = 2; // Mark as rage
+        return true;
+    }
     
-    // Normalize angles
+    // Normalize yaw
     while (curr_yaw > 180) curr_yaw -= 360;
     while (curr_yaw < -180) curr_yaw += 360;
 
-    // Calculate delta from previous
+    // Calculate yaw delta
     float delta = std::abs(curr_yaw - data.original_yaw);
     if (delta > 180) delta = 360 - delta;
-    
-    // Calculate velocity delta
-    float vel_delta = std::abs(curr_yaw - velocity_yaw);
-    if (vel_delta > 180) vel_delta = 360 - vel_delta;
     
     // Update average delta with decay
     if (data.delta_samples < 10) {
@@ -138,70 +167,52 @@ bool IsAntiAiming(CachedEntity* entity) {
     
     data.original_yaw = curr_yaw;
     data.last_delta = delta;
-    data.last_velocity_yaw = velocity_yaw;
 
-    // Detect anti-aim patterns
-    bool is_aa = false;
-    int aa_type = 0;
-    
-    // Check for legit anti-aim first
-    if (velocity.Length2D() > 0.1f) {
-        // Check if player is strafing legitimately
-        if (vel_delta > 130.0f && vel_delta < 150.0f) {
-            // Likely legit sideways AA
-            is_aa = true;
-            aa_type = 1; // Mark as legit AA
-            data.resolve_type = 1; // Mark as legit AA
-        }
+    // Detect rage anti-aim patterns first
+    if (data.avg_delta > 90.0f && data.delta_samples >= 3) {
+        data.is_fake = true;
+        data.resolve_type = 2; // Rage AA
+        data.aa_type = 2; // Jitter/Spin
+        return true;
     }
     
-    // If not legit AA, check for blatant AA
-    if (!is_aa) {
-        // Large consistent angle changes
-        if (data.avg_delta > 90.0f && data.delta_samples >= 5) {
-            is_aa = true;
-            aa_type = 2; // Jitter
-            data.resolve_type = 2; // Mark as blatant AA
+    // Detect spin (another form of rage AA)
+    static float last_angles[MAX_PLAYERS];
+    static int spin_count[MAX_PLAYERS];
+    
+    if (std::abs(curr_yaw - last_angles[entity->m_IDX]) > 30.0f) {
+        if (++spin_count[entity->m_IDX] >= 3) {
+            data.is_fake = true;
+            data.resolve_type = 2;
+            data.aa_type = 3; // Spin
+            return true;
         }
+    } else {
+        spin_count[entity->m_IDX] = 0;
+    }
+    
+    last_angles[entity->m_IDX] = curr_yaw;
+
+    // Only check for legit AA if no rage AA detected
+    if (!data.is_fake) {
+        Vector velocity;
+        velocity::EstimateAbsVelocity(RAW_ENT(entity), velocity);
+        
+        if (velocity.Length2D() > 0.1f) {
+            QAngle vel_angles;
+            VectorAngles(velocity, vel_angles);
+            float vel_delta = std::abs(curr_yaw - vel_angles.y);
+            if (vel_delta > 180) vel_delta = 360 - vel_delta;
             
-        // Detect spin
-        static float last_angles[MAX_PLAYERS];
-        static int spin_count[MAX_PLAYERS];
-        
-        if (std::abs(curr_yaw - last_angles[entity->m_IDX]) > 30.0f) {
-            spin_count[entity->m_IDX]++;
-            if (spin_count[entity->m_IDX] >= 3) {
-                is_aa = true;
-                aa_type = 3; // Spin
-                data.resolve_type = 2;
-            }
-        } else {
-            spin_count[entity->m_IDX] = 0;
-        }
-        
-        last_angles[entity->m_IDX] = curr_yaw;
-        
-        // Detect random
-        if (data.avg_delta > 45.0f && data.delta_samples >= 5 && !is_aa) {
-            float randomness = std::abs(delta - data.last_delta);
-            if (randomness > 30.0f) {
-                is_aa = true;
-                aa_type = 4; // Random
-                data.resolve_type = 2;
+            // Check for sideways AA
+            if (vel_delta > 130.0f && vel_delta < 150.0f) {
+                data.is_fake = true;
+                data.resolve_type = 1; // Legit AA
+                data.aa_type = 1;
             }
         }
     }
-
-    // Update AA type
-    if (is_aa)
-        data.aa_type = aa_type;
-    else
-        data.aa_type = 0;
-
-    // Only mark as AA if we've seen enough samples
-    if (data.delta_samples >= 3)
-        data.is_fake = is_aa;
-        
+    
     return data.is_fake;
 }
 
