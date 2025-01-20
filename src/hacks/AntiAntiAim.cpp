@@ -21,7 +21,7 @@ struct PlayerResolverData {
     bool resolved;
     float resolved_yaw;
     bool is_fake;
-    int resolve_type;
+    int resolve_type;  // 0 = none, 1 = legit aa, 2 = blatant aa
     float original_yaw;
     float last_delta;
     int missed_shots;
@@ -29,9 +29,18 @@ struct PlayerResolverData {
     float avg_delta;
     int delta_samples;
     bool has_hit;
+    float last_eye_yaw;
+    float last_real_yaw;
+    float last_velocity_yaw;
+    int aa_type; // 0 = none, 1 = static, 2 = jitter, 3 = spin, 4 = random
+    int shots_hit;
+    int shots_fired;
+    float hit_accuracy;
     PlayerResolverData() : resolved(false), resolved_yaw(0.0f), is_fake(false), resolve_type(0), 
                           original_yaw(0.0f), last_delta(0.0f), missed_shots(0), last_simtime(0.0f),
-                          avg_delta(0.0f), delta_samples(0), has_hit(false) {}
+                          avg_delta(0.0f), delta_samples(0), has_hit(false), last_eye_yaw(0.0f),
+                          last_real_yaw(0.0f), last_velocity_yaw(0.0f), aa_type(0), shots_hit(0),
+                          shots_fired(0), hit_accuracy(0.0f) {}
 };
 static std::array<PlayerResolverData, MAX_PLAYERS> player_resolver_data;
 
@@ -97,9 +106,15 @@ bool IsAntiAiming(CachedEntity* entity) {
         
     data.last_simtime = simtime;
     
-    // Get current angles
+    // Get current angles and velocity
     Vector angles = CE_VECTOR(entity, netvar.m_angEyeAngles);
     float curr_yaw = angles.y;
+    
+    Vector velocity;
+    velocity::EstimateAbsVelocity(RAW_ENT(entity), velocity);
+    QAngle vel_angles;
+    VectorAngles(velocity, vel_angles);
+    float velocity_yaw = vel_angles.y;
     
     // Normalize angles
     while (curr_yaw > 180) curr_yaw -= 360;
@@ -109,7 +124,11 @@ bool IsAntiAiming(CachedEntity* entity) {
     float delta = std::abs(curr_yaw - data.original_yaw);
     if (delta > 180) delta = 360 - delta;
     
-    // Update average delta
+    // Calculate velocity delta
+    float vel_delta = std::abs(curr_yaw - velocity_yaw);
+    if (vel_delta > 180) vel_delta = 360 - vel_delta;
+    
+    // Update average delta with decay
     if (data.delta_samples < 10) {
         data.avg_delta = (data.avg_delta * data.delta_samples + delta) / (data.delta_samples + 1);
         data.delta_samples++;
@@ -119,32 +138,65 @@ bool IsAntiAiming(CachedEntity* entity) {
     
     data.original_yaw = curr_yaw;
     data.last_delta = delta;
+    data.last_velocity_yaw = velocity_yaw;
 
     // Detect anti-aim patterns
     bool is_aa = false;
+    int aa_type = 0;
     
-    // Large consistent angle changes
-    if (data.avg_delta > 90.0f && data.delta_samples >= 5)
-        is_aa = true;
-        
-    // Snap changes > 140 degrees
-    if (delta > 140.0f)
-        is_aa = true;
-        
-    // Detect spin
-    static float last_angles[MAX_PLAYERS];
-    static int spin_count[MAX_PLAYERS];
-    
-    if (std::abs(curr_yaw - last_angles[entity->m_IDX]) > 30.0f) {
-        spin_count[entity->m_IDX]++;
-    } else {
-        spin_count[entity->m_IDX] = 0;
+    // Check for legit anti-aim first
+    if (velocity.Length2D() > 0.1f) {
+        // Check if player is strafing legitimately
+        if (vel_delta > 130.0f && vel_delta < 150.0f) {
+            // Likely legit sideways AA
+            is_aa = true;
+            aa_type = 1; // Mark as legit AA
+            data.resolve_type = 1; // Mark as legit AA
+        }
     }
     
-    last_angles[entity->m_IDX] = curr_yaw;
-    
-    if (spin_count[entity->m_IDX] >= 3)
-        is_aa = true;
+    // If not legit AA, check for blatant AA
+    if (!is_aa) {
+        // Large consistent angle changes
+        if (data.avg_delta > 90.0f && data.delta_samples >= 5) {
+            is_aa = true;
+            aa_type = 2; // Jitter
+            data.resolve_type = 2; // Mark as blatant AA
+        }
+            
+        // Detect spin
+        static float last_angles[MAX_PLAYERS];
+        static int spin_count[MAX_PLAYERS];
+        
+        if (std::abs(curr_yaw - last_angles[entity->m_IDX]) > 30.0f) {
+            spin_count[entity->m_IDX]++;
+            if (spin_count[entity->m_IDX] >= 3) {
+                is_aa = true;
+                aa_type = 3; // Spin
+                data.resolve_type = 2;
+            }
+        } else {
+            spin_count[entity->m_IDX] = 0;
+        }
+        
+        last_angles[entity->m_IDX] = curr_yaw;
+        
+        // Detect random
+        if (data.avg_delta > 45.0f && data.delta_samples >= 5 && !is_aa) {
+            float randomness = std::abs(delta - data.last_delta);
+            if (randomness > 30.0f) {
+                is_aa = true;
+                aa_type = 4; // Random
+                data.resolve_type = 2;
+            }
+        }
+    }
+
+    // Update AA type
+    if (is_aa)
+        data.aa_type = aa_type;
+    else
+        data.aa_type = 0;
 
     // Only mark as AA if we've seen enough samples
     if (data.delta_samples >= 3)
@@ -177,21 +229,56 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
     {
     case 0: // Smart - Analyze patterns
     {
-        if (data.avg_delta > 150.0f) {
-            // Likely 180 flip
-            angle += 180.0f;
+        if (data.resolve_type == 1) { // Legit AA
+            // For legit AA, try to predict based on velocity
+            Vector velocity;
+            velocity::EstimateAbsVelocity(RAW_ENT(entity), velocity);
+            if (velocity.Length2D() > 0.1f) {
+                QAngle vel_angles;
+                VectorAngles(velocity, vel_angles);
+                
+                // Try opposite of velocity direction first
+                if (data.missed_shots % 2 == 0)
+                    angle = vel_angles.y + 180.0f;
+                else
+                    angle = vel_angles.y;
+            }
         }
-        else if (data.avg_delta > 30.0f && data.avg_delta < 60.0f) {
-            // Likely jitter, alternate between original and inverse
-            if (brute.brutenum % 2)
-                angle += data.avg_delta;
-            else 
-                angle -= data.avg_delta;
-        }
-        else {
-            // Try common angles based on misses
-            float resolve_angles[] = { 0.0f, 180.0f, 90.0f, -90.0f };
-            angle += resolve_angles[brute.brutenum % 4];
+        else { // Blatant AA
+            float spin_speed = 0.0f;
+            switch (data.aa_type) {
+            case 2: // Jitter
+                if (data.avg_delta > 150.0f) {
+                    // Likely 180 flip
+                    angle += 180.0f;
+                }
+                else {
+                    // Alternate between original and inverse
+                    if (brute.brutenum % 2)
+                        angle += data.avg_delta;
+                    else 
+                        angle -= data.avg_delta;
+                }
+                break;
+                
+            case 3: // Spin
+                // Try to predict the current spin angle
+                spin_speed = (angle - data.last_eye_yaw) / (data.last_simtime - CE_FLOAT(entity, netvar.m_flSimulationTime));
+                angle += spin_speed * 0.2f; // Predict 0.2s ahead
+                break;
+                
+            case 4: // Random
+                // Use previous successful angles more often
+                if (data.shots_hit > 0 && data.hit_accuracy > 0.5f) {
+                    angle = data.last_real_yaw;
+                }
+                else {
+                    // Try common angles based on misses
+                    float resolve_angles[] = { 0.0f, 180.0f, 90.0f, -90.0f };
+                    angle += resolve_angles[brute.brutenum % 4];
+                }
+                break;
+            }
         }
         break;
     }
@@ -202,9 +289,12 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
             angle = data.resolved_yaw;
         }
         else {
-            // Increment angle by misses
-            float increment = 45.0f * (data.missed_shots % 8);
-            angle += increment;
+            // Increment angle based on misses and accuracy
+            float increment = 45.0f;
+            if (data.shots_fired > 0)
+                increment *= (1.0f - data.hit_accuracy); // More aggressive for lower accuracy
+                
+            angle += increment * (data.missed_shots % 8);
         }
         break;
     }
@@ -220,6 +310,8 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
     while (angle > 180) angle -= 360;
     while (angle < -180) angle += 360;
     
+    // Update tracking data
+    data.last_eye_yaw = CE_VECTOR(entity, netvar.m_angEyeAngles).y;
     brute.new_angle.y = angle;
     data.resolved_yaw = angle;
     data.resolved = true;
@@ -234,6 +326,10 @@ void OnHit(CachedEntity* target) {
     auto& data = player_resolver_data[target->m_IDX];
     data.has_hit = true;
     data.missed_shots = 0;
+    data.shots_hit++;
+    data.shots_fired++;
+    data.hit_accuracy = (float)data.shots_hit / data.shots_fired;
+    data.last_real_yaw = data.resolved_yaw;
 }
 
 void OnMiss(CachedEntity* target) {
@@ -242,6 +338,8 @@ void OnMiss(CachedEntity* target) {
         
     auto& data = player_resolver_data[target->m_IDX];
     data.missed_shots++;
+    data.shots_fired++;
+    data.hit_accuracy = (float)data.shots_hit / data.shots_fired;
     
     if (data.missed_shots > 4) {
         data.has_hit = false;
