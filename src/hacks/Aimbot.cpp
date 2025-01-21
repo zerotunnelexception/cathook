@@ -501,12 +501,250 @@ AimbotTarget_t target_last;
 bool aimed_this_tick      = false;
 Vector viewangles_this_tick(0.0f);
 
-// If slow aimbot allows autoshoot
+
 bool slow_can_shoot = false;
 bool projectileAimbotRequired;
 
-// This array will store calculated projectile/hitscan predictions
-// for current frame, to avoid performing them again
+
+struct PredictionSystem 
+{
+    
+    struct MovementSimulation 
+    {
+        Vector position;
+        Vector velocity;
+        Vector acceleration;
+        float groundTime;
+        bool onGround;
+        bool ducking;
+    };
+
+    
+    struct ProjectileSimulation 
+    {
+        Vector position;
+        Vector velocity;
+        float time;
+        bool hasCollided;
+    };
+
+    static MovementSimulation SimulateMovement(CachedEntity* target, float time, bool useEngine = true) 
+    {
+        MovementSimulation result;
+        
+
+        result.position = target->m_vecOrigin();
+        Vector tempVel;
+        velocity::EstimateAbsVelocity(RAW_ENT(target), result.velocity);
+        result.acceleration = Vector(0, 0, 0);
+        result.onGround = CE_INT(target, netvar.iFlags) & FL_ONGROUND;
+        result.ducking = CE_INT(target, netvar.iFlags) & FL_DUCKING;
+        
+        if (useEngine && g_IEngine->IsInGame())
+        {
+            // Use engine prediction when available
+            auto player = RAW_ENT(target);
+            if (player)
+            {
+                QAngle engineAngles;
+                g_IEngine->GetViewAngles(engineAngles);
+                
+           
+                result.position = player->GetAbsOrigin() + (result.velocity * time);
+                velocity::EstimateAbsVelocity(player, tempVel);
+                result.velocity = tempVel;
+            }
+        }
+
+        // Apply gravity
+        const float gravity = g_ICvar->FindVar("sv_gravity")->GetFloat();
+        if (!result.onGround)
+        {
+            result.acceleration.z = -gravity;
+            result.velocity.z += result.acceleration.z * time;
+        }
+
+        // Apply air resistance and friction
+        const float friction = g_ICvar->FindVar("sv_friction")->GetFloat();
+        const float stopSpeed = 100.0f; // Minimum speed before full stop
+        
+        if (result.onGround)
+        {
+            float speed = result.velocity.Length2D();
+            if (speed > 0)
+            {
+                float drop = speed * friction * time;
+                float newSpeed = std::max(0.0f, speed - drop);
+                if (newSpeed != speed)
+                {
+                    newSpeed /= speed;
+                    result.velocity.x *= newSpeed;
+                    result.velocity.y *= newSpeed;
+                }
+            }
+        }
+        
+        // Air movement
+        else 
+        {
+            float airControl = 0.3f;
+            Vector airAccel = result.velocity;
+            airAccel.NormalizeInPlace();
+            airAccel *= airControl;
+            result.velocity += airAccel * time;
+        }
+
+        // Apply movement bounds
+        float maxSpeed = 320.0f;
+        if (result.ducking)
+            maxSpeed *= 0.33f;
+
+        // Clamp velocity
+        if (result.velocity.Length2D() > maxSpeed)
+        {
+            float ratio = maxSpeed / result.velocity.Length2D();
+            result.velocity.x *= ratio;
+            result.velocity.y *= ratio;
+        }
+
+        // Update position
+        result.position += result.velocity * time;
+        
+        return result;
+    }
+
+    static ProjectileSimulation SimulateProjectile(const Vector& startPos, const Vector& startVel, float gravity, float time)
+    {
+        ProjectileSimulation result;
+        result.position = startPos;
+        result.velocity = startVel;
+        result.time = 0.0f;
+        result.hasCollided = false;
+
+        float timeStep = 0.01f; // 10ms simulation steps
+        
+        while (result.time < time && !result.hasCollided)
+        {
+            // Update position
+            result.position += result.velocity * timeStep;
+            
+            // Apply gravity
+            result.velocity.z -= gravity * timeStep;
+            
+            // Check for collisions
+            trace_t trace;
+            Ray_t ray;
+            ray.Init(result.position, result.position + result.velocity * timeStep);
+            
+            class CTraceFilterSimple : public CTraceFilter
+            {
+            public:
+                virtual bool ShouldHitEntity(IHandleEntity* pEntity, int contentsMask)
+                {
+                    return pEntity != skip;
+                }
+                virtual TraceType_t GetTraceType() const
+                {
+                    return TRACE_EVERYTHING;
+                }
+                IHandleEntity* skip;
+            };
+
+            CTraceFilterSimple filter;
+            filter.skip = RAW_ENT(LOCAL_E);
+            g_ITrace->TraceRay(ray, MASK_SHOT, &filter, &trace);
+            
+            if (trace.DidHit())
+            {
+                result.hasCollided = true;
+                result.position = trace.endpos;
+            }
+            
+            result.time += timeStep;
+        }
+        
+        return result;
+    }
+
+    static Vector PredictTarget(CachedEntity* target, float projectileSpeed, float projectileGravity, bool allowPerfect = false)
+    {
+        if (!target)
+            return {};
+
+        // Get target info
+        Vector targetPos = target->m_vecOrigin();
+        Vector targetVel;
+        velocity::EstimateAbsVelocity(RAW_ENT(target), targetVel);
+        
+      
+        if (target->m_Type() == ENTITY_PLAYER)
+        {
+            auto hitbox = target->hitboxes.GetHitbox(autoHitbox(target));
+            if (hitbox)
+                targetPos = hitbox->center;
+        }
+        
+        
+        float dist = targetPos.DistTo(g_pLocalPlayer->v_Eye);
+        float initialTime = dist / projectileSpeed;
+        
+       
+        const int MAX_ITERATIONS = 3;
+        float predictionTime = initialTime;
+        Vector bestPrediction = targetPos;
+        bool foundGoodPrediction = false;
+        
+        for (int i = 0; i < MAX_ITERATIONS && !foundGoodPrediction; i++)
+        {
+            
+            auto movement = SimulateMovement(target, predictionTime);
+            
+            
+            Vector shootDir = (movement.position - g_pLocalPlayer->v_Eye);
+            shootDir.NormalizeInPlace();
+            Vector projectileVel = shootDir * projectileSpeed;
+            
+            auto projectile = SimulateProjectile(g_pLocalPlayer->v_Eye, projectileVel, projectileGravity, predictionTime);
+            
+      
+            float newDist = projectile.position.DistTo(movement.position);
+            float newTime = newDist / projectileSpeed;
+            
+           
+            if (std::abs(newTime - predictionTime) < 0.05f || allowPerfect)
+            {
+                bestPrediction = movement.position;
+                foundGoodPrediction = true;
+            }
+            else
+            {
+                predictionTime = (predictionTime + newTime) * 0.5f;
+            }
+        }
+
+ 
+        if (target->m_Type() == ENTITY_PLAYER)
+        {
+
+            float latencyCompensation = g_IEngine->GetNetChannelInfo() ? 
+                (g_IEngine->GetNetChannelInfo()->GetLatency(FLOW_OUTGOING) +
+                 g_IEngine->GetNetChannelInfo()->GetLatency(FLOW_INCOMING)) : 0.0f;
+            
+            bestPrediction += targetVel * latencyCompensation;
+            
+
+            if (!allowPerfect)
+            {
+                float randomSpread = 1.0f;
+                bestPrediction.x += RandFloatRange(-randomSpread, randomSpread);
+                bestPrediction.y += RandFloatRange(-randomSpread, randomSpread);
+                bestPrediction.z += RandFloatRange(-randomSpread, randomSpread);
+            }
+        }
+
+        return bestPrediction;
+    }
+};
 
 // The main "loop" of the aimbot.
 static void CreateMove()
@@ -1472,41 +1710,45 @@ void DoAutoshoot(AimbotTarget_t target)
         current_user_cmd->buttons |= IN_ATTACK2;
 }
 
-// Grab a vector for a specific ent
+// Update the projectile prediction in PredictEntity
 Vector PredictEntity(AimbotTarget_t& target)
 {
-    // Pull out predicted data
-    Vector &result            = target.aim_position;
+    Vector &result = target.aim_position;
     const short int curr_type = target.ent->m_Type();
 
-    // Players
-
-    // If using projectiles, predict a vector
     switch (curr_type)
     {
     case ENTITY_PLAYER:
     {
         if (projectileAimbotRequired)
         {
-            std::pair<Vector, Vector> tmp_result;
-            // Use prediction engine if user settings allow
-            if (engine_projpred)
-                tmp_result = ProjectilePrediction_Engine(target.ent, target.hitbox, cur_proj_speed, cur_proj_grav, PlayerGravityMod(target.ent), cur_proj_start_vel);
-            else
-                tmp_result = ProjectilePrediction(target.ent, target.hitbox, cur_proj_speed, cur_proj_grav, PlayerGravityMod(target.ent), cur_proj_start_vel);
+            // Get proper projectile speed and gravity
+            float proj_speed = cur_proj_speed;
+            float proj_grav = cur_proj_grav;
 
-            // Don't use the intial velocity compensated one in vischecks
-            result = tmp_result.second;
+            // Adjust for specific weapons
+            if (LOCAL_W->m_iClassID() == CL_CLASS(CTFCompoundBow))
+            {
+                float chargetime = g_GlobalVars->curtime - CE_FLOAT(LOCAL_W, netvar.flChargeBeginTime);
+                if (chargetime > 1.0f) chargetime = 1.0f;
+                proj_speed *= (float)((chargetime * 0.5f) + 0.5f);
+            }
+
+            result = PredictionSystem::PredictTarget(target.ent, proj_speed, proj_grav);
+            
+            // Verify prediction is reasonable
+            if (!result.IsValid() || result.DistTo(g_pLocalPlayer->v_Eye) > 4096.0f)
+            {
+                target.valid = false;
+                return result;
+            }
         }
         else
         {
-            // If using extrapolation, then predict a vector
             if (extrapolate)
                 result = SimpleLatencyPrediction(target.ent, target.hitbox);
-            // else just grab strait from the hitbox
             else
             {
-                // Allow multipoint logic to run
                 if (!*multipoint)
                 {
                     result = target.ent->hitboxes.GetHitbox(target.hitbox)->center;
@@ -1520,36 +1762,36 @@ Vector PredictEntity(AimbotTarget_t& target)
         }
         break;
     }
-        // Buildings
     case ENTITY_BUILDING:
     {
         if (cur_proj_grav != 0)
         {
-            std::pair<Vector, Vector> temp_result = BuildingPrediction(target.ent, GetBuildingPosition(target.ent), cur_proj_speed, cur_proj_grav, cur_proj_start_vel);
-            result                                = temp_result.second;
+            result = PredictionSystem::PredictTarget(target.ent, cur_proj_speed, cur_proj_grav);
+            if (!result.IsValid())
+            {
+                target.valid = false;
+                return result;
+            }
         }
         else
             result = GetBuildingPosition(target.ent);
         break;
     }
-        // NPCs (Skeletons, merasmus, etc)
     case ENTITY_NPC:
     {
-        result = target.ent->hitboxes.GetHitbox(std::fmax(0, target.ent->hitboxes.GetNumHitboxes() / 2 - 1))->center;
+        result = target.ent->hitboxes.GetHitbox(std::max(0, target.ent->hitboxes.GetNumHitboxes() / 2 - 1))->center;
         break;
     }
-
-        // Other
     default:
     {
         result = target.ent->m_vecOrigin();
         break;
     }
     }
+
     target.predict_tick = tickcount;
-    target.fov          = GetFov(g_pLocalPlayer->v_OrigViewangles, g_pLocalPlayer->v_Eye, result);
+    target.fov = GetFov(g_pLocalPlayer->v_OrigViewangles, g_pLocalPlayer->v_Eye, result);
     target.aim_position = result;
-    // Return the found vector
     return result;
 }
 int notVisibleHitbox(CachedEntity *target, int preferred)
