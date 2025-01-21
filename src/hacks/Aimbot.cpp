@@ -475,7 +475,7 @@ void doAutoZoom(bool target_found)
     if (LOCAL_W->m_iClassID() == CL_CLASS(CTFMinigun) && (target_found || nearest.second <= *rev_distance))
     {
         if (target_found)
-            zoomTime.update();
+            zoom_time.update();
         if (!g_pLocalPlayer->bRevved || !g_pLocalPlayer->bRevving)
             current_user_cmd->buttons |= IN_ATTACK2;
     }
@@ -494,12 +494,8 @@ void doAutoZoom(bool target_found)
     {
         if (target_found)
             zoomTime.update();
-        if (g_pLocalPlayer->holding_sniper_rifle && !g_pLocalPlayer->bZoomed && CanHeadshot())
-        {
-            zoomTime.update();
-            if ((zoomTime.check(200) || projectile_mode) && !g_pLocalPlayer->bZoomed)
-                current_user_cmd->buttons |= IN_ATTACK2;
-        }
+        if (not g_pLocalPlayer->bZoomed)
+            current_user_cmd->buttons |= IN_ATTACK2;
     }
     else if (!target_found && nearest.second >= *zoom_distance)
     {

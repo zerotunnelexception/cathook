@@ -38,68 +38,47 @@ void VectorAngles(const Vector &forward, QAngle &angles)
 
 namespace hacks::shared::anti_anti_aim
 {
-
 static settings::Boolean enable{ "anti-anti-aim.enable", "false" };
 static settings::Boolean debug{ "anti-anti-aim.debug.enable", "false" };
 static settings::Int resolver_mode{ "anti-anti-aim.resolver.mode", "0" };
 static settings::Int min_hits{ "anti-anti-aim.resolver.min-hits", "2" };
-static settings::Int cleanup_time{ "anti-anti-aim.cleanup-time", "30" };
 
-boost::unordered_flat_map<unsigned, brutedata> resolver_map{};
-std::array<CachedEntity *, 32> sniperdot_array{};
-std::array<PlayerResolverData, MAX_PLAYERS> player_resolver_data{};
-static Timer cleanup_timer{};
+boost::unordered_flat_map<unsigned, brutedata> resolver_map;
+std::array<CachedEntity *, 32> sniperdot_array;
 
-static void CleanupResolverData()
-{
-    if (!cleanup_timer.check(*cleanup_time * 1000))
-        return;
-        
-    cleanup_timer.update();
-    
-    // Cleanup resolver map of disconnected players
-    for (auto it = resolver_map.begin(); it != resolver_map.end();)
-    {
-        bool found = false;
-        for (auto const &player : entity_cache::player_cache)
-        {
-            if (CE_BAD(player) || !player->m_bEnemy() || !player->player_info->friendsID)
-                continue;
-                
-            if (player->player_info->friendsID == it->first)
-            {
-                found = true;
-                break;
-            }
-        }
-        
-        if (!found)
-        {
-            auto temp = it;
-            ++it;
-            resolver_map.erase(temp);
-        }
-        else
-            ++it;
-    }
-    
-    // Reset player resolver data for invalid players
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        auto player = ENTITY(i);
-        if (CE_BAD(player) || !player->m_bAlivePlayer() || !player->m_bEnemy())
-        {
-            player_resolver_data[i] = PlayerResolverData{};
-        }
-    }
-}
+// Add resolver data structure
+struct PlayerResolverData {
+    bool resolved;
+    float resolved_yaw;
+    bool is_fake;
+    int resolve_type;  // 0 = none, 1 = legit aa, 2 = blatant aa
+    float original_yaw;
+    float last_delta;
+    int missed_shots;
+    float last_simtime;
+    float avg_delta;
+    int delta_samples;
+    bool has_hit;
+    float last_eye_yaw;
+    float last_real_yaw;
+    float last_velocity_yaw;
+    int aa_type; // 0 = none, 1 = static, 2 = jitter, 3 = spin, 4 = random
+    int shots_hit;
+    int shots_fired;
+    float hit_accuracy;
+    PlayerResolverData() : resolved(false), resolved_yaw(0.0f), is_fake(false), resolve_type(0), 
+                          original_yaw(0.0f), last_delta(0.0f), missed_shots(0), last_simtime(0.0f),
+                          avg_delta(0.0f), delta_samples(0), has_hit(false), last_eye_yaw(0.0f),
+                          last_real_yaw(0.0f), last_velocity_yaw(0.0f), aa_type(0), shots_hit(0),
+                          shots_fired(0), hit_accuracy(0.0f) {}
+};
+static std::array<PlayerResolverData, MAX_PLAYERS> player_resolver_data;
 
 static inline void modifyAngles()
 {
-    CleanupResolverData();
-    
     for (auto const &player : entity_cache::player_cache)
     {
+
         if (CE_BAD(player) || !player->m_bAlivePlayer() || !player->m_bEnemy() || !player->player_info->friendsID)
             continue;
         auto &data  = resolver_map[player->player_info->friendsID];
@@ -133,13 +112,7 @@ void frameStageNotify(ClientFrameStage_t stage)
 {
 #if !ENABLE_TEXTMODE
     if (!enable || !g_IEngine->IsInGame())
-    {
-        // Clear data when disconnecting
-        resolver_map.clear();
-        for (auto &data : player_resolver_data)
-            data = PlayerResolverData{};
         return;
-    }
     if (stage == FRAME_NET_UPDATE_POSTDATAUPDATE_START)
     {
         modifyAngles();
@@ -151,7 +124,7 @@ static std::array<float, 8> yaw_resolves{ 0.0f, 180.0f, 90.0f, -90.0f, 45.0f, -4
 
 
 bool IsAntiAiming(CachedEntity* entity) {
-    if (!entity || entity->m_Type() != ENTITY_PLAYER || !entity->m_bEnemy())
+    if (!entity || entity->m_Type() != ENTITY_PLAYER)
         return false;
 
     auto& data = player_resolver_data[entity->m_IDX];
@@ -358,7 +331,7 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
 }
 
 void OnHit(CachedEntity* target) {
-    if (!target || target->m_Type() != ENTITY_PLAYER || !target->m_bEnemy())
+    if (!target || target->m_Type() != ENTITY_PLAYER)
         return;
         
     auto& data = player_resolver_data[target->m_IDX];
@@ -371,7 +344,7 @@ void OnHit(CachedEntity* target) {
 }
 
 void OnMiss(CachedEntity* target) {
-    if (!target || target->m_Type() != ENTITY_PLAYER || !target->m_bEnemy())
+    if (!target || target->m_Type() != ENTITY_PLAYER)
         return;
         
     auto& data = player_resolver_data[target->m_IDX];
@@ -597,7 +570,6 @@ static InitRoutine init(
         EC::Register(EC::CreateMove, modifyAngles, "cm_textmodeantiantiaim");
         EC::Register(EC::CreateMoveWarp, modifyAngles, "cmw_textmodeantiantiaim");
 #endif
-        cleanup_timer.update(); // Initialize cleanup timer
     });
 
 static float NormalizeAngle(float angle) {
