@@ -114,7 +114,8 @@
             <AutoVariable width="fill" target="aimbot.auto.spin-up" label="Auto spin-up" tooltip="Spin up the minigun automatically if an enemy is found."/>
             <AutoVariable width="fill" target="aimbot.auto.tapfire" label="Tapfire minigun"/>
             <AutoVariable width="fill" target="aimbot.auto.zoom" label="Auto zoom" tooltip="Intelligently zoom if applicable to current weapon type."/>
-            <AutoVariable width="fill" target="aimbot.zoom.distance" label="Zoom distance"/>
+            <AutoVariable width="fill" target="aimbot.zoom.distance" label="Zoom distance" tooltip="Distance at which the sniper rifle will zoom in."/>
+            <AutoVariable width="fill" target="aimbot.rev.distance" label="Rev distance" tooltip="Distance at which the minigun will start revving up"/>
             <AutoVariable width="fill" target="aimbot.auto.unzoom" label="Auto unzoom" tooltip="Intelligently unzoom if applicable to current weapon type."/>
         </List>
     </Box>
