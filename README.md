@@ -21,7 +21,7 @@ Cathook is training software designed for Team Fortress 2 on Linux. It includes 
 * Sandvich aimbot
 * Autotaunt
 
-and a lot of useful features, including
+And a lot of useful features, including
 
 * Working hitscan and projectile nospread
 * Anti Backstab with option to use "No" voice command when spy tries to backstab you
