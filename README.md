@@ -1,11 +1,21 @@
-# Cathook 32x Training Software
-![banner](https://i.ibb.co/FHM2JXY/cathook.png)
+<div align="center">
 
-## Overview
+# Cathook 32x Training Software
+
+</div>
 
 <div align="center">
     <img src="https://i.ibb.co/FHM2JXY/cathook.png" alt="banner">
 </div>
+
+<div align="center">
+
+## Overview
+
+</div>
+
+
+Cathook is training software designed for Team Fortress 2 on Linux. It includes various joke features, such as
 
 * Ignore Hoovy
 * Sandvich aimbot
