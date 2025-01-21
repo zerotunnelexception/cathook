@@ -18,6 +18,7 @@
 Cathook is training software designed for Team Fortress 2 on Linux. It includes various joke features, such as
 
 * Ignore Hoovy
+* That's how mafia works
 * Sandvich aimbot
 * Autotaunt
 
