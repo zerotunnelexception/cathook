@@ -34,34 +34,44 @@ static zerokernel::special::PlayerListData createPlayerListData(int userid)
 
 static void initPlayerlist()
 {
+    if (!zerokernel::Menu::instance || !zerokernel::Menu::instance->wm)
+    {
+        logging::Info("Menu not ready for playerlist initialization\n");
+        return;
+    }
+
     auto pl = dynamic_cast<zerokernel::Table *>(zerokernel::Menu::instance->wm->getElementById("special-player-list"));
     if (pl)
     {
-        controller = std::make_unique<zerokernel::special::PlayerListController>(*pl);
-        controller->setKickButtonCallback([](int uid) { hack::command_stack().push(format("callvote kick ", uid)); });
-        controller->setOpenSteamCallback(
-            [](unsigned steam)
-            {
-                CSteamID id{};
-                id.Set(steam, EUniverse::k_EUniversePublic, EAccountType::k_EAccountTypeIndividual);
-                g_ISteamFriends->ActivateGameOverlayToUser("steamid", id);
-            });
-        controller->setChangeStateCallback(
-            [](unsigned steam, int userid)
-            {
-                auto &pl = playerlist::AccessData(steam);
-                for (unsigned i = 0; i < playerlist::k_arrGUIStates.size() - 1; i++)
+        try {
+            controller = std::make_unique<zerokernel::special::PlayerListController>(*pl);
+            controller->setKickButtonCallback([](int uid) { hack::command_stack().push(format("callvote kick ", uid)); });
+            controller->setOpenSteamCallback(
+                [](unsigned steam)
                 {
-                    if (pl.state == playerlist::k_arrGUIStates.at(i).first)
+                    CSteamID id{};
+                    id.Set(steam, EUniverse::k_EUniversePublic, EAccountType::k_EAccountTypeIndividual);
+                    g_ISteamFriends->ActivateGameOverlayToUser("steamid", id);
+                });
+            controller->setChangeStateCallback(
+                [](unsigned steam, int userid)
+                {
+                    auto &pl = playerlist::AccessData(steam);
+                    for (unsigned i = 0; i < playerlist::k_arrGUIStates.size() - 1; i++)
                     {
-                        pl.state = playerlist::k_arrGUIStates.at(i + 1).first;
-                        controller->updatePlayerState(userid, playerlist::k_Names[static_cast<size_t>(pl.state)]);
-                        return;
+                        if (pl.state == playerlist::k_arrGUIStates.at(i).first)
+                        {
+                            pl.state = playerlist::k_arrGUIStates.at(i + 1).first;
+                            controller->updatePlayerState(userid, playerlist::k_Names[static_cast<size_t>(pl.state)]);
+                            return;
+                        }
                     }
-                }
-                pl.state = playerlist::k_arrGUIStates.front().first;
-                controller->updatePlayerState(userid, playerlist::k_Names[static_cast<size_t>(pl.state)]);
-            });
+                    pl.state = playerlist::k_arrGUIStates.front().first;
+                    controller->updatePlayerState(userid, playerlist::k_Names[static_cast<size_t>(pl.state)]);
+                });
+        } catch (const std::exception& e) {
+            logging::Info("Failed to initialize playerlist: %s\n", e.what());
+        }
     }
     else
     {
@@ -71,6 +81,9 @@ static void initPlayerlist()
 
 void sortPList()
 {
+    controller->removeAll();
+    
+
     for (auto i = 1; i <= MAX_PLAYERS; ++i)
     {
         player_info_s info{};
@@ -195,12 +208,22 @@ static CatCommand reload("gui_reload", "Reload", []() { load(); });
 
 void gui::init()
 {
-    zerokernel::Menu::init(draw::width, draw::height);
-    g_IGameEventManager->AddListener(&listener, false);
-
-    load();
-
-    init_done = true;
+    try {
+        zerokernel::Menu::init(draw::width, draw::height);
+        
+        // Load menu first
+        load();
+        
+        // Add event listener after menu is loaded
+        g_IGameEventManager->AddListener(&listener, false);
+        
+        // Initialize playerlist after menu is fully loaded
+        initPlayerlist();
+        
+        init_done = true;
+    } catch (const std::exception& e) {
+        logging::Info("Failed to initialize GUI: %s\n", e.what());
+    }
 }
 
 void gui::shutdown()

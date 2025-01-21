@@ -181,9 +181,11 @@ navPoints determinePoints(CNavArea *current, CNavArea *next)
         to_next.z = 0.0f;
         to_next.NormalizeInPlace();
 
-        // Move the points inward by a small amount to stay away from walls
-        float inset = 32.0f; // Adjust this value to control how far from walls to stay
-        center_point = center_point + (area_center - center_point).Normalized() * inset;
+        // Calculate center point as a weighted average between area centers
+        center_point = area_center + (next_center - area_center) * 0.5f;
+        
+        // Ensure the point is within the current area
+        center_point = current->getNearestPoint(center_point.AsVector2D());
     }
 
     // Nearest point to center on "next", used for height checks

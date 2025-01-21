@@ -231,15 +231,23 @@ void zerokernel::special::PlayerListController::addPlayer(int id, zerokernel::sp
 
 void zerokernel::special::PlayerListController::changeRowColor(zerokernel::TRow *row, const rgba_t &color)
 {
+    if (!row)
+        return;
+
     row->iterateObjects([&color](BaseMenuObject *object) -> void {
+        if (!object)
+            return;
+            
         auto tdata = dynamic_cast<TData *>(object);
         if (tdata)
         {
             tdata->iterateObjects([&color](BaseMenuObject *object) -> void {
+                if (!object)
+                    return;
+                    
                 auto text = dynamic_cast<Text *>(object);
-                if (text && (int) text->kv["team_color"])
+                if (text && (int)text->kv["team_color"])
                 {
-                    printf("Setting color to %f %f %f %f\n", color.r, color.g, color.b, color.a);
                     text->setColorText(&color);
                 }
             });
@@ -249,6 +257,9 @@ void zerokernel::special::PlayerListController::changeRowColor(zerokernel::TRow 
 
 void zerokernel::special::PlayerListController::updateRow(zerokernel::TRow *row)
 {
+    if (!row)
+        return;
+        
     int team    = (int) row->kv["player_team"];
     int dead    = (int) row->kv["player_dead"];
     int classId = (int) row->kv["player_class"];
@@ -271,10 +282,9 @@ void zerokernel::special::PlayerListController::updateRow(zerokernel::TRow *row)
     auto el         = dynamic_cast<Text *>(row->getElementById("class"));
     auto alivestate = dynamic_cast<Text *>(row->getElementById("alivestate"));
     auto state      = dynamic_cast<Text *>(row->getElementById("state"));
+    
     if (el)
-    {
         el->set(class_names[classId]);
-    }
     if (alivestate)
         alivestate->set(dead ? "Dead" : "Alive");
     if (state)
