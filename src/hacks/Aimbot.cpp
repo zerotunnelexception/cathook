@@ -62,7 +62,8 @@ static settings::Boolean auto_spin_up{ "aimbot.auto.spin-up", "0" };
 static settings::Boolean minigun_tapfire{ "aimbot.auto.tapfire", "false" };
 static settings::Boolean auto_zoom{ "aimbot.auto.zoom", "0" };
 static settings::Boolean auto_unzoom{ "aimbot.auto.unzoom", "0" };
-static settings::Int zoom_distance{ "aimbot.zoom.distance", "1250" }; // that's default zoom distance
+static settings::Int zoom_distance{ "aimbot.zoom.distance", "1850" }; 
+static settings::Int rev_distance{ "aimbot.rev.distance", "1850" }; 
 
 static settings::Boolean backtrackAimbot{ "aimbot.backtrack", "0" };
 static settings::Boolean backtrackLastTickOnly("aimbot.backtrack.only-last-tick", "true");
@@ -475,7 +476,7 @@ void doAutoZoom(bool target_found)
     {
         if (target_found)
             zoomTime.update();
-        if (isIdle || !zoomTime.check(3000))
+        if (isIdle || !zoomTime.check(3000) || nearest.second < *rev_distance)
             current_user_cmd->buttons |= IN_ATTACK2;
         return;
     }
