@@ -3,7 +3,9 @@
 
 ## Overview
 
-Cathook is a training software designed for Team Fortress 2 for Linux. Cathook includes some joke features like
+<div align="center">
+    <img src="https://i.ibb.co/FHM2JXY/cathook.png" alt="banner">
+</div>
 
 * Ignore Hoovy
 * Sandvich aimbot
