@@ -51,9 +51,9 @@ Then start tf2 32bit and attach cathook (by "sudo ./attach")
 
 </div>
 Join our Telegram groups:
-- [Chat](https://t.me/cathookcom)
-- [Announcements](https://t.me/cathookmel)
 
+- [Chat](https://t.me/cathookcom).
+- [Announcements](https://t.me/cathookmel).
 <div align="center">
 
 ## Yes, it is still actively maintained.
