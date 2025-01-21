@@ -33,32 +33,53 @@ and a lot of useful features, including
 * Automatic matchmaking
 * And many more features!
 
-# Installing, updating, attaching (injecting)
+<div align="center">
+
+# Installing, updating and attaching
+
+</div>
 
 If its your first time installing cathook, please use the ./fresh-start script.
 (it will automatically install needed depencies, tf2 32bit and navmeshes)
 Then start tf2 32bit and attach cathook (by "sudo ./attach")
+
 [View our short guide to installing and using cathook](https://cathook.org/docs) 
 
+<div align="center">
+
 ## Community
+
+</div>
 Join our Telegram groups:
 - [Chat](https://t.me/cathookcom)
 - [Announcements](https://t.me/cathookmel)
 ## Yes, its still alive after official "death"
 
-ill maintain this cheat until it will be unpossible or better one/ch2 will be released.
-9 year history cant be lost.
+I will maintain this cheat until it becomes impossible or a better version/CH2 is released.
+A 9-year history can't be lost.
 
-## Reporting Issues
+<div align="center">
+
+## Reporting issues
+
+</div>
 
 If some things doesn't work as expected, please open issues on GitHub using [this page](https://github.com/mlemlody/cathook/issues).
 or u can use [our website](https://cathook.org/support).
 
+<div align="center">
+
 ## Contributing
+
+</div>
 
 Do you want to submit code to cathook? Please read `CONTRIBUTING.md` for a short introduction.
 
-## Risk of VAC detection
+<div align="center">
+
+## Risk of VAC/game ban
+
+</div>
 
 The software could be detected by VAC in the future. Only use it on accounts you won't regret getting VAC banned. However, the detection chance is around 0.
 
