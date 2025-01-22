@@ -1,4 +1,4 @@
-## Contributing to Cathook or other Nullworks Projects
+## Contributing to Cathook or other MistakesMultiplied Projects
 
 ### Prerequisites
 
@@ -22,7 +22,7 @@ Cathook developement is performed on multiple branches. Changes are then pull re
 
 ### Code-Style
 
-The nullworks code-style can be found in `code-style.md`.
+The MistakesMultiplied code-style can be found in `code-style.md`.
 
 ### Building
 

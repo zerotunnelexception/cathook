@@ -1,6 +1,6 @@
 # File responsible for building the cathook "binary package"
 
-image: "nullworks/cathook-ci-ubuntu:latest"
+image: "MistakesMultiplied/cathook-ci-ubuntu:latest"
 
 variables:
     GIT_SUBMODULE_STRATEGY: recursive

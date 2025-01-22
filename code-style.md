@@ -1,4 +1,4 @@
-# NullWorks code style (Work in progress)
+# MistakesMultiplied code style (Work in progress)
 
 ## C/C++
 
