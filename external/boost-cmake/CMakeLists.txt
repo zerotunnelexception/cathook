@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.12)
 project(Boost-CMake)
 
 option(BOOST_DISABLE_TESTS "Do not build test targets, even if building standalone" OFF)
-set(BOOST_URL "https://github.com/MistakesMultiplied/boost-cmake/releases/download/boost_unordered_map/boost_1_76_map.tar.bz2" CACHE STRING "Boost download URL")
+set(BOOST_URL "https://github.com/STEVE4git/boost-cmake/releases/download/boost_unordered_map/boost_1_76_map.tar.bz2" CACHE STRING "Boost download URL")
 set(BOOST_URL_SHA256 "80c04ce41f95d4a1914290bc23c0e34e6f71232e7f65cc011727cfa9a66f579e" CACHE STRING "Boost download URL SHA256 checksum")
 
 include(FetchContent)
