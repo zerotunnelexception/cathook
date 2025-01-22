@@ -70,7 +70,7 @@ A 9-year history can't be lost.
 
 </div>
 
-If some things doesn't work as expected, please open issues on GitHub using [this page](https://github.com/mlemlody/cathook/issues).
+If some things doesn't work as expected, please open issues on GitHub using [this page](https://github.com/MistakesMultiplied/cathook/issues).
 or u can use [our website](https://cathook.org/support).
 
 <div align="center">
