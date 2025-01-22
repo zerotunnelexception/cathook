@@ -53,7 +53,6 @@ static settings::Boolean projectile_aimbot{ "aimbot.projectile.enable", "true" }
 static settings::Float proj_gravity{ "aimbot.projectile.gravity", "0" };
 static settings::Float proj_speed{ "aimbot.projectile.speed", "0" };
 static settings::Float proj_start_vel{ "aimbot.projectile.initial-velocity", "0" };
-static settings::Int projectile_hitchance{ "aimbot.projectile.hitchance", "60" }; // 0-100%
 
 static settings::Float sticky_autoshoot{ "aimbot.projectile.sticky-autoshoot", "0.5" };
 
@@ -667,71 +666,6 @@ struct PredictionSystem
         return result;
     }
 
-    static bool CheckHitchance(const Vector& targetPos, float projectileSpeed, float projectileGravity, CachedEntity* target)
-    {
-        if (!target || *projectile_hitchance <= 0)
-            return true;
-            
-        const int NUM_TRACES = 50;
-        int hits = 0;
-        
-        // Get target hitbox size
-        float targetRadius = 0.0f;
-        if (target->m_Type() == ENTITY_PLAYER)
-        {
-            // Use head hitbox for size reference
-            if (auto hitbox = target->hitboxes.GetHitbox(hitbox_t::head))
-            {
-                // Calculate radius from hitbox size
-                Vector size = hitbox->bbox->bbmax - hitbox->bbox->bbmin;
-                targetRadius = size.Length() * 0.5f;
-            }
-        }
-        else if (target->m_Type() == ENTITY_BUILDING)
-        {
-            // Buildings use a larger radius
-            targetRadius = 32.0f;
-        }
-        else
-        {
-            // Default radius for other entities
-            targetRadius = 20.0f;
-        }
-
-        Vector vel;
-        velocity::EstimateAbsVelocity(RAW_ENT(target), vel);
-        
-        // Calculate time to target
-        float dist = targetPos.DistTo(g_pLocalPlayer->v_Eye);
-        float time = dist / projectileSpeed;
-        
-        // Run traces
-        for (int i = 0; i < NUM_TRACES; i++)
-        {
-            // Simulate target movement with some randomization
-            Vector randOffset(
-                RandFloatRange(-targetRadius, targetRadius),
-                RandFloatRange(-targetRadius, targetRadius),
-                RandFloatRange(-targetRadius, targetRadius)
-            );
-            
-            Vector simTargetPos = targetPos + vel * time + randOffset;
-            
-            // Simulate projectile
-            Vector shootDir = (simTargetPos - g_pLocalPlayer->v_Eye);
-            shootDir.NormalizeInPlace();
-            
-            auto proj = SimulateProjectile(g_pLocalPlayer->v_Eye, shootDir * projectileSpeed, projectileGravity, time);
-            
-            // Check if projectile would hit
-            if (proj.position.DistTo(simTargetPos) < targetRadius * 1.5f)
-                hits++;
-        }
-        
-        float hitchance = (float)hits / NUM_TRACES * 100.0f;
-        return hitchance >= *projectile_hitchance;
-    }
-
     static Vector PredictTarget(CachedEntity* target, float projectileSpeed, float projectileGravity, bool allowPerfect = false)
     {
         if (!target)
@@ -742,7 +676,7 @@ struct PredictionSystem
         Vector targetVel;
         velocity::EstimateAbsVelocity(RAW_ENT(target), targetVel);
         
-        // Get hitbox position instead of origin for better accuracy
+      
         if (target->m_Type() == ENTITY_PLAYER)
         {
             auto hitbox = target->hitboxes.GetHitbox(autoHitbox(target));
@@ -750,11 +684,11 @@ struct PredictionSystem
                 targetPos = hitbox->center;
         }
         
-        // Initial prediction time estimate
+        
         float dist = targetPos.DistTo(g_pLocalPlayer->v_Eye);
         float initialTime = dist / projectileSpeed;
         
-        // Iterative prediction refinement
+       
         const int MAX_ITERATIONS = 3;
         float predictionTime = initialTime;
         Vector bestPrediction = targetPos;
@@ -762,21 +696,21 @@ struct PredictionSystem
         
         for (int i = 0; i < MAX_ITERATIONS && !foundGoodPrediction; i++)
         {
-            // Simulate target movement
+            
             auto movement = SimulateMovement(target, predictionTime);
             
-            // Simulate projectile trajectory
+            
             Vector shootDir = (movement.position - g_pLocalPlayer->v_Eye);
             shootDir.NormalizeInPlace();
             Vector projectileVel = shootDir * projectileSpeed;
             
             auto projectile = SimulateProjectile(g_pLocalPlayer->v_Eye, projectileVel, projectileGravity, predictionTime);
             
-            // Calculate new prediction time
+      
             float newDist = projectile.position.DistTo(movement.position);
             float newTime = newDist / projectileSpeed;
             
-            // Update best prediction
+           
             if (std::abs(newTime - predictionTime) < 0.05f || allowPerfect)
             {
                 bestPrediction = movement.position;
@@ -788,13 +722,10 @@ struct PredictionSystem
             }
         }
 
-        // Check hitchance before returning prediction
-        if (!CheckHitchance(bestPrediction, projectileSpeed, projectileGravity, target))
-            return {};
-
-        // Apply additional corrections
+ 
         if (target->m_Type() == ENTITY_PLAYER)
         {
+
             float latencyCompensation = g_IEngine->GetNetChannelInfo() ? 
                 (g_IEngine->GetNetChannelInfo()->GetLatency(FLOW_OUTGOING) +
                  g_IEngine->GetNetChannelInfo()->GetLatency(FLOW_INCOMING)) : 0.0f;
@@ -1791,9 +1722,11 @@ Vector PredictEntity(AimbotTarget_t& target)
     {
         if (projectileAimbotRequired)
         {
+            // Get proper projectile speed and gravity
             float proj_speed = cur_proj_speed;
             float proj_grav = cur_proj_grav;
 
+            // Adjust for specific weapons
             if (LOCAL_W->m_iClassID() == CL_CLASS(CTFCompoundBow))
             {
                 float chargetime = g_GlobalVars->curtime - CE_FLOAT(LOCAL_W, netvar.flChargeBeginTime);
@@ -1803,8 +1736,8 @@ Vector PredictEntity(AimbotTarget_t& target)
 
             result = PredictionSystem::PredictTarget(target.ent, proj_speed, proj_grav);
             
-            // Check if prediction failed (including hitchance check)
-            if (result.IsZero() || !result.IsValid() || result.DistTo(g_pLocalPlayer->v_Eye) > 4096.0f)
+            // Verify prediction is reasonable
+            if (!result.IsValid() || result.DistTo(g_pLocalPlayer->v_Eye) > 4096.0f)
             {
                 target.valid = false;
                 return result;
