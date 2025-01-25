@@ -486,346 +486,429 @@ void RenderChamsRecursive(IClientEntity *entity, CMaterialReference &mat, IVMode
 // Purpose => Apply and render chams according to settings
 void ApplyChams(ChamColors colors, bool recurse, bool render_original, bool overlay, bool ignorez, bool wireframe, bool firstperson, IClientEntity *entity, IVModelRender *this_, const DrawModelState_t &state, const ModelRenderInfo_t &info, matrix3x4_t *bone)
 {
-    static auto &mat = firstperson ? overlay ? mats.mat_dme_unlit_overlay_base_fp : mats.mat_dme_lit_fp : overlay ? mats.mat_dme_unlit_overlay_base : mats.mat_dme_lit;
-    if (render_original)
-        recurse ? RenderChamsRecursive(entity, mat, this_, state, info, bone) : original::DrawModelExecute(this_, state, info, bone);
+    static bool in_chams = false;
+    if (in_chams) // Prevent recursive calls
+        return;
+    
+    in_chams = true;
 
-    // Setup material
-    g_IVRenderView->SetColorModulation(colors.rgba);
-    g_IVRenderView->SetBlend((colors.rgba).a);
-    mat->AlphaModulate((colors.rgba).a);
-    if (envmap && envmap_tint)
-        mat->FindVar("$envmaptint", nullptr)->SetVecValue(colors.envmap_r, colors.envmap_g, colors.envmap_b);
-
-    // Setup wireframe and ignorez using material vars
-    mat->SetMaterialVarFlag(MATERIAL_VAR_IGNOREZ, ignorez);
-    mat->SetMaterialVarFlag(MATERIAL_VAR_WIREFRAME, wireframe);
-
-    // Override
-    g_IVModelRender->ForcedMaterialOverride(mat);
-
-    // Apply our new material
-    recurse ? RenderChamsRecursive(entity, mat, this_, state, info, bone) : original::DrawModelExecute(this_, state, info, bone);
-    if (overlay)
+    if (!g_IVRenderView || !g_IVModelRender || !g_IMaterialSystem)
     {
-        // Use white if no color was supplied
-        if (colors.rgba_overlay == colors::empty && entity && IDX_GOOD(entity->entindex()))
-        {
-            CachedEntity *ent = ENTITY(entity->entindex());
-            if (ent->m_Type() != ENTITY_PLAYER && ent->m_Type() != ENTITY_PROJECTILE && ent->m_Type() != ENTITY_BUILDING)
-                colors.rgba_overlay = colors::white;
-            else
-                colors.rgba_overlay = ent->m_iTeam() == TEAM_RED ? *chams_overlay_color_red : ent->m_iTeam() == TEAM_BLU ? *chams_overlay_color_blu : colors::white;
-        }
-        // Setup material
-        g_IVRenderView->SetColorModulation(colors.rgba_overlay);
-        g_IVRenderView->SetBlend((colors.rgba_overlay).a);
-
-        static auto &mat_overlay = mats.mat_dme_lit_overlay;
-        if (envmap && envmap_tint)
-            mat_overlay->FindVar("$envmaptint", nullptr)->SetVecValue(colors.envmap_r, colors.envmap_g, colors.envmap_b);
-
-        mat_overlay->SetMaterialVarFlag(MATERIAL_VAR_IGNOREZ, ignorez);
-        mat_overlay->AlphaModulate((colors.rgba_overlay).a);
-
-        // Override and apply
-        g_IVModelRender->ForcedMaterialOverride(mat_overlay);
-        recurse ? RenderChamsRecursive(entity, mat, this_, state, info, bone) : original::DrawModelExecute(this_, state, info, bone);
+        in_chams = false;
+        return;
     }
+
+    // Render original model first if requested
+    if (render_original)
+    {
+        original::DrawModelExecute(this_, state, info, bone);
+    }
+
+    try 
+    {
+        static CMaterialReference mat_regular;
+        static CMaterialReference mat_overlay;
+        static bool materials_created = false;
+
+        if (!materials_created)
+        {
+            KeyValues* kv = new KeyValues("VertexLitGeneric");
+            KeyValues* kv_overlay = new KeyValues("VertexLitGeneric");
+            if (!kv || !kv_overlay)
+            {
+                in_chams = false;
+                return;
+            }
+
+            // Base material setup
+            kv->SetString("$basetexture", "vgui/white_additive");
+            kv->SetInt("$halflambert", *halfambert);
+            kv->SetInt("$phong", *phong_enable);
+            kv->SetFloat("$phongexponent", *phong_exponent);
+            kv->SetFloat("$phongboost", *phong_boost);
+            if (phong_fresnelrange)
+            {
+                char buffer[100];
+                snprintf(buffer, 100, "[%.2f %.2f %.2f]", *phong_fresnelrange_1, *phong_fresnelrange_2, *phong_fresnelrange_3);
+                kv->SetString("$phongfresnelranges", buffer);
+            }
+            if (envmap)
+            {
+                const char *cubemap_str = *envmap_matt ? "effects/saxxy/saxxy_gold" : "env_cubemap";
+                kv->SetString("$envmap", cubemap_str);
+                kv->SetFloat("$envmapfresnel", *envmapfresnel);
+                kv->SetString("$envmapfresnelminmaxexp", "[0.01 1 2]");
+                kv->SetInt("$normalmapalphaenvmapmask", 1);
+                if (envmap_tint)
+                    kv->SetString("$envmaptint", "[1 1 1]");
+            }
+            kv->SetInt("$rimlight", *rimlighting);
+            kv->SetFloat("$rimlightexponent", *rimlighting_exponent);
+            kv->SetFloat("$rimlightboost", *rimlighting_boost);
+
+            // Overlay material setup
+            kv_overlay->SetString("$basetexture", "vgui/white_additive");
+            kv_overlay->SetInt("$additive", *additive);
+            kv_overlay->SetInt("$pearlescent", *pearlescent);
+            kv_overlay->SetInt("$halflambert", *halfambert);
+            kv_overlay->SetInt("$phong", *phong_enable);
+            kv_overlay->SetFloat("$phongexponent", *phong_exponent);
+            kv_overlay->SetFloat("$phongboost", *phong_boost);
+            if (phong_fresnelrange)
+            {
+                char buffer[100];
+                snprintf(buffer, 100, "[%.2f %.2f %.2f]", *phong_fresnelrange_1, *phong_fresnelrange_2, *phong_fresnelrange_3);
+                kv_overlay->SetString("$phongfresnelranges", buffer);
+            }
+            if (envmap)
+            {
+                const char *cubemap_str = *envmap_matt ? "effects/saxxy/saxxy_gold" : "env_cubemap";
+                kv_overlay->SetString("$envmap", cubemap_str);
+                kv_overlay->SetFloat("$envmapfresnel", *envmapfresnel);
+                kv_overlay->SetString("$envmapfresnelminmaxexp", "[0.01 1 2]");
+                kv_overlay->SetInt("$normalmapalphaenvmapmask", 1);
+                if (envmap_tint)
+                    kv_overlay->SetString("$envmaptint", "[1 1 1]");
+            }
+            kv_overlay->SetInt("$rimlight", *rimlighting);
+            kv_overlay->SetFloat("$rimlightexponent", *rimlighting_exponent);
+            kv_overlay->SetFloat("$rimlightboost", *rimlighting_boost);
+
+            mat_regular.Init("__cathook_chams", kv);
+            mat_overlay.Init("__cathook_chams_overlay", kv_overlay);
+
+            materials_created = true;
+        }
+
+        if (!mat_regular.IsValid() || !mat_overlay.IsValid())
+        {
+            in_chams = false;
+            return;
+        }
+
+        // Apply base chams
+        mat_regular->SetMaterialVarFlag(MATERIAL_VAR_IGNOREZ, ignorez && !legit);
+        mat_regular->SetMaterialVarFlag(MATERIAL_VAR_WIREFRAME, wireframe);
+        if (envmap && envmap_tint)
+            mat_regular->FindVar("$envmaptint", nullptr)->SetVecValue(colors.envmap_r, colors.envmap_g, colors.envmap_b);
+        mat_regular->ColorModulate(colors.rgba.r, colors.rgba.g, colors.rgba.b);
+        mat_regular->AlphaModulate(colors.rgba.a);
+
+        g_IVModelRender->ForcedMaterialOverride(mat_regular);
+        if (recurse)
+            RenderChamsRecursive(entity, mat_regular, this_, state, info, bone);
+        else
+            original::DrawModelExecute(this_, state, info, bone);
+
+        // Apply overlay chams
+        if (overlay)
+        {
+            if (colors.rgba_overlay == colors::empty && entity && IDX_GOOD(entity->entindex()))
+            {
+                CachedEntity *ent = ENTITY(entity->entindex());
+                if (ent)
+                {
+                    if (ignorez)
+                    {
+                        colors.rgba_overlay = (ent->m_iTeam() == TEAM_RED) ? *chams_overlay_color_red_novis : 
+                                            (ent->m_iTeam() == TEAM_BLU) ? *chams_overlay_color_blu_novis : 
+                                            colors::white;
+                    }
+                    else
+                    {
+                        colors.rgba_overlay = (ent->m_iTeam() == TEAM_RED) ? *chams_overlay_color_red : 
+                                            (ent->m_iTeam() == TEAM_BLU) ? *chams_overlay_color_blu : 
+                                            colors::white;
+                    }
+                }
+            }
+
+            mat_overlay->SetMaterialVarFlag(MATERIAL_VAR_IGNOREZ, ignorez && !legit);
+            mat_overlay->SetMaterialVarFlag(MATERIAL_VAR_WIREFRAME, wireframe);
+            if (envmap && envmap_tint)
+                mat_overlay->FindVar("$envmaptint", nullptr)->SetVecValue(colors.envmap_r, colors.envmap_g, colors.envmap_b);
+            mat_overlay->ColorModulate(colors.rgba_overlay.r, colors.rgba_overlay.g, colors.rgba_overlay.b);
+            mat_overlay->AlphaModulate(colors.rgba_overlay.a);
+
+            g_IVModelRender->ForcedMaterialOverride(mat_overlay);
+            if (recurse)
+                RenderChamsRecursive(entity, mat_overlay, this_, state, info, bone);
+            else
+                original::DrawModelExecute(this_, state, info, bone);
+        }
+    }
+    catch (...)
+    {
+        // Ignore any exceptions
+    }
+
+    // Reset material override
+    g_IVModelRender->ForcedMaterialOverride(nullptr);
+    in_chams = false;
 }
 
 DEFINE_HOOKED_METHOD(DrawModelExecute, void, IVModelRender *this_, const DrawModelState_t &state, const ModelRenderInfo_t &info, matrix3x4_t *bone)
 {
-    if (!isHackActive() || effect_glow::g_EffectGlow.drawing || chams_attachment_drawing || (*clean_screenshots && g_IEngine->IsTakingScreenshot()) || disable_visuals || CE_BAD(LOCAL_E) || (!enable && !no_hats && !no_arms && !blend_zoom && !arms_chams && !local_weapon_chams /*&& !(hacks::tf2::backtrack::chams && hacks::tf2::backtrack::isBacktrackEnabled)*/))
-        return original::DrawModelExecute(this_, state, info, bone);
-
-    PROF_SECTION(DrawModelExecute);
-
-    if (!init_mat)
+    // Early exit conditions
+    if (!isHackActive() || effect_glow::g_EffectGlow.drawing || chams_attachment_drawing || 
+        (*clean_screenshots && g_IEngine->IsTakingScreenshot()) || disable_visuals || CE_BAD(LOCAL_E) || 
+        !g_IVRenderView || !g_IVModelRender || !enable)
     {
-        const char *cubemap_str = *envmap_matt ? "effects/saxxy/saxxy_gold" : "env_cubemap";
-        {
-            auto *kv = new KeyValues("UnlitGeneric");
-            kv->SetString("$basetexture", "white");
-            mats.mat_dme_unlit.Init("__cathook_dme_chams_unlit", kv);
-        }
-        KeyValues *kv_vertex_lit = nullptr;
-        {
-            auto *kv = new KeyValues("VertexLitGeneric");
-            kv->SetString("$basetexture", "white");
-            kv->SetString("$bumpmap", "water/tfwater001_normal");
-            kv->SetString("$lightwarptexture", "models/player/pyro/pyro_lightwarp");
-            kv->SetBool("$halfambert", *halfambert);
-            kv->SetBool("$phong", *phong_enable);
-            kv->SetFloat("$phongexponent", *phong_exponent);
-            kv->SetFloat("$phongboost", *phong_boost);
-            if (phong_fresnelrange)
-            {
-                char buffer[100];
-                snprintf(buffer, 100, "[%.2f %.2f %.2f]", *phong_fresnelrange_1, *phong_fresnelrange_2, *phong_fresnelrange_3);
-                kv->SetString("$phongfresnelranges", buffer);
-            }
-            if (envmap)
-            {
-                kv->SetString("$envmap", cubemap_str);
-                kv->SetFloat("$envmapfresnel", *envmapfresnel);
-                kv->SetString("$envmapfresnelminmaxexp", "[0.01 1 2]");
-                kv->SetInt("$normalmapalphaenvmapmask", 1);
-                kv->SetInt("$selfillum", 1);
-                if (envmap_tint)
-                    kv->SetString("$envmaptint", "[1 1 1]");
-            }
-            kv->SetBool("$rimlight", *rimlighting);
-            kv->SetFloat("$rimlightexponent", *rimlighting_exponent);
-            kv->SetFloat("$rimlightboost", *phong_boost);
-            kv_vertex_lit = kv->MakeCopy();
-            mats.mat_dme_lit.Init("__cathook_dme_chams_lit", kv);
-        }
-        {
-            auto *kv = new KeyValues("UnlitGeneric");
-            kv->SetString("$basetexture", "white");
-            mats.mat_dme_unlit_overlay_base.Init("__cathook_dme_chams_lit_overlay_base", kv);
-        }
-        {
-            auto *kv = kv_vertex_lit;
-            kv->SetInt("$additive", *additive);
-            kv->SetInt("$pearlescent", *pearlescent);
-            kv->SetBool("$flat", false);
-            mats.mat_dme_lit_overlay.Init("__cathook_dme_chams_lit_overlay", kv);
-        }
-        KeyValues *kv_vertex_lit_fp = nullptr;
-        {
-            auto *kv = new KeyValues("VertexLitGeneric");
-            kv->SetString("$basetexture", "white");
-            kv->SetString("$bumpmap", "water/tfwater001_normal");
-            kv->SetString("$lightwarptexture", "models/player/pyro/pyro_lightwarp");
-            kv->SetBool("$halfambert", *halfambert);
-            kv->SetBool("$phong", *phong_enable);
-            kv->SetFloat("$phongexponent", *phong_exponent);
-            kv->SetFloat("$phongboost", *phong_boost);
-            if (phong_fresnelrange)
-            {
-                char buffer[100];
-                snprintf(buffer, 100, "[%.2f %.2f %.2f]", *phong_fresnelrange_1, *phong_fresnelrange_2, *phong_fresnelrange_3);
-                kv->SetString("$phongfresnelranges", buffer);
-            }
-            if (envmap)
-            {
-                kv->SetString("$envmap", cubemap_str);
-                kv->SetFloat("$envmapfresnel", *envmapfresnel);
-                kv->SetString("$envmapfresnelminmaxexp", "[0.01 1 2]");
-                kv->SetInt("$normalmapalphaenvmapmask", 1);
-                kv->SetInt("$selfillum", 1);
-                if (envmap_tint)
-                    kv->SetString("$envmaptint", "[1 1 1]");
-            }
-            kv->SetBool("$rimlight", *rimlighting);
-            kv->SetFloat("$rimlightexponent", *rimlighting_exponent);
-            kv->SetFloat("$rimlightboost", *phong_boost);
-            kv_vertex_lit_fp = kv->MakeCopy();
-            mats.mat_dme_lit_fp.Init("__cathook_dme_chams_lit_fp", kv);
-        }
-        {
-            auto *kv = new KeyValues("UnlitGeneric");
-            kv->SetString("$basetexture", "white");
-            mats.mat_dme_unlit_overlay_base_fp.Init("__cathook_dme_chams_lit_overlay_base_fp", kv);
-        }
-        {
-            auto *kv = kv_vertex_lit_fp;
-            kv->SetInt("$additive", *additive);
-            kv->SetInt("$pearlescent", *pearlescent);
-            kv->SetBool("$flat", false);
-            mats.mat_dme_lit_overlay_fp.Init("__cathook_dme_chams_lit_overlay_fp", kv);
-        }
-        init_mat = true;
+        return original::DrawModelExecute(this_, state, info, bone);
     }
 
-    if (info.pModel)
+    // Check if we have a valid entity
+    if (!info.pModel)
+        return original::DrawModelExecute(this_, state, info, bone);
+
+    IClientEntity *entity = g_IEntityList->GetClientEntity(info.entity_index);
+    if (!entity)
+        return original::DrawModelExecute(this_, state, info, bone);
+
+    // Get model name
+    const char *name = g_IModelInfo->GetModelName(info.pModel);
+    if (!name)
+        return original::DrawModelExecute(this_, state, info, bone);
+
+    try
     {
-        const char *name = g_IModelInfo->GetModelName(info.pModel);
-        if (name)
+        // Handle arms/viewmodel
+        if (strstr(name, "arms") || strstr(name, "c_engineer_gunslinger"))
         {
-            std::string sname = name;
-            if (should_draw_fp_chams && should_draw_fp_chams_timer.check(500) && ((sname.find("arms") != std::string::npos && sname.find("yeti") == std::string::npos) || sname.find("c_engineer_gunslinger") != std::string::npos))
-            {
-                if (no_arms)
-                    return;
-
-                if (arms_chams)
-                {
-                    // Backup original colors
-                    rgba_t original_color;
-                    g_IVRenderView->GetColorModulation(original_color);
-                    original_color.a = g_IVRenderView->GetBlend();
-
-                    // Setup according to user settings using the ChamColors struct
-                    auto colors         = GetChamColors(LOCAL_E->InternalEntity(), false);
-                    colors.rgba_overlay = LOCAL_E->m_iTeam() == TEAM_RED ? *chams_overlay_color_red : LOCAL_E->m_iTeam() == TEAM_BLU ? *chams_overlay_color_blu : colors::white;
-                    if (!arms_chams_team_color)
-                    {
-                        colors              = *arm_basechams_color;
-                        colors.rgba_overlay = *arm_overlaychams_color;
-                        colors.envmap_r     = *envmap_tint_arms_r;
-                        colors.envmap_g     = *envmap_tint_arms_g;
-                        colors.envmap_b     = *envmap_tint_arms_b;
-                    }
-                    colors.rgba.a         = (*arm_basechams_color).a;
-                    colors.rgba_overlay.a = (*arm_overlaychams_color).a;
-
-                    // Apply arm chams
-                    IClientEntity *entity = g_IEntityList->GetClientEntity(info.entity_index);
-                    ApplyChams(colors, false, *arm_chams_original, *arm_chams_overlay_chams, false, *arms_chams_wireframe, true, entity, this_, state, info, bone);
-
-                    // Reset it!
-                    g_IVModelRender->ForcedMaterialOverride(nullptr);
-                    g_IVRenderView->SetColorModulation(original_color);
-                    g_IVRenderView->SetBlend(original_color.a);
-                    return;
-                }
-            }
-            // Workaround for attachments flickering
-            std::vector<DrawEntry> tmp_list;
-            bool do_draw = true;
-            for (auto &drawer : attachment_draw_list)
-            {
-                if (drawer.entidx == info.entity_index)
-                {
-                    do_draw = false;
-                }
-                else
-                    tmp_list.push_back(drawer);
-            }
-            attachment_draw_list = std::move(tmp_list);
-            if (!do_draw)
+            if (no_arms)
                 return;
 
-            if (should_draw_fp_chams && should_draw_fp_chams_timer.check(500) && local_weapon_chams && info.entity_index == -1 && sname.find("arms") == std::string::npos && (sname.find("models/weapons") != std::string::npos || sname.find("models/workshop/weapons") != std::string::npos || sname.find("models/workshop_partner/weapons") != std::string::npos))
+            if (arms_chams)
             {
-                // Backup original colors
-                rgba_t original_color;
-                g_IVRenderView->GetColorModulation(original_color);
-                original_color.a = g_IVRenderView->GetBlend();
+                ChamColors colors;
+                if (arms_chams_team_color)
+                {
+                    colors = GetChamColors(LOCAL_E->InternalEntity(), false);
+                }
+                else
+                {
+                    colors.rgba = *arm_basechams_color;
+                    colors.rgba_overlay = *arm_overlaychams_color;
+                    colors.envmap_r = *envmap_tint_arms_r;
+                    colors.envmap_g = *envmap_tint_arms_g;
+                    colors.envmap_b = *envmap_tint_arms_b;
+                }
+                ApplyChams(colors, false, *arm_chams_original, *arm_chams_overlay_chams, false, *arms_chams_wireframe, true, entity, this_, state, info, bone);
+                return;
+            }
+        }
 
-                auto colors           = GetChamColors(LOCAL_E->InternalEntity(), false);
-                IClientEntity *entity = g_IEntityList->GetClientEntity(info.entity_index);
-
-                // Setup according to user settings using the ChamColors struct
+        // Handle local weapon chams
+        if (local_weapon_chams && re::C_BaseCombatWeapon::IsBaseCombatWeapon(entity))
+        {
+            IClientEntity *owner = re::C_TFWeaponBase::GetOwnerViaInterface(entity);
+            if (owner && owner->entindex() == g_IEngine->GetLocalPlayer())
+            {
+                ChamColors colors;
                 if (local_weapon_chams_team_color)
                 {
-                    colors.rgba_overlay = LOCAL_E->m_iTeam() == TEAM_RED ? *chams_overlay_color_red : LOCAL_E->m_iTeam() == TEAM_BLU ? *chams_overlay_color_blu : colors::white;
+                    colors = GetChamColors(LOCAL_E->InternalEntity(), false);
                 }
                 else
                 {
-                    colors              = *local_weapon_basechams_color;
+                    colors.rgba = *local_weapon_basechams_color;
                     colors.rgba_overlay = *local_weapon_overlaychams_color;
-                    colors.envmap_r     = *envmap_tint_local_weapon_r;
-                    colors.envmap_g     = *envmap_tint_local_weapon_g;
-                    colors.envmap_b     = *envmap_tint_local_weapon_b;
+                    colors.envmap_r = *envmap_tint_local_weapon_r;
+                    colors.envmap_g = *envmap_tint_local_weapon_g;
+                    colors.envmap_b = *envmap_tint_local_weapon_b;
                 }
-                colors.rgba.a         = (*local_weapon_basechams_color).a;
-                colors.rgba_overlay.a = (*local_weapon_overlaychams_color).a;
-
-                // Apply local weapon chams
                 ApplyChams(colors, false, *local_weapon_chams_original, *local_weapon_chams_overlay_chams, false, *local_weapon_chams_wireframe, true, entity, this_, state, info, bone);
-
-                // Reset it!
-                g_IVModelRender->ForcedMaterialOverride(nullptr);
-                g_IVRenderView->SetColorModulation(original_color);
-                g_IVRenderView->SetBlend(original_color.a);
                 return;
             }
+        }
 
-            if (no_hats && sname.find("player/items") != std::string::npos)
-                return;
-
-            // Player, entity and backtrack chams
-            if (IDX_GOOD(info.entity_index))
+        // Handle enemy weapon chams
+        if (weapons && re::C_BaseCombatWeapon::IsBaseCombatWeapon(entity))
+        {
+            IClientEntity *owner = re::C_TFWeaponBase::GetOwnerViaInterface(entity);
+            if (owner && owner->entindex() != g_IEngine->GetLocalPlayer())
             {
-                // Get the internal entity from the index
-                IClientEntity *entity = g_IEntityList->GetClientEntity(info.entity_index);
-                if (ShouldRenderChams(entity))
+                CachedEntity *ent = ENTITY(owner->entindex());
+                if (!ent || !ent->m_bEnemy() || (!teammates && !ent->m_bEnemy()))
+                    return original::DrawModelExecute(this_, state, info, bone);
+
+                ChamColors colors;
+                colors.rgba = *weapons_base;
+                colors.rgba_overlay = *weapons_overlay;
+                colors.envmap_r = *envmap_tint_weapons_r;
+                colors.envmap_g = *envmap_tint_weapons_g;
+                colors.envmap_b = *envmap_tint_weapons_b;
+                ApplyChams(colors, false, true, *overlay_chams, false, false, false, entity, this_, state, info, bone);
+                return;
+            }
+        }
+
+        // Handle player chams
+        if (entity->entindex() > 0 && entity->entindex() <= g_IEngine->GetMaxClients())
+        {
+            if (!players)
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            CachedEntity *ent = ENTITY(entity->entindex());
+            if (!ent || !ent->m_bAlivePlayer())
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            // Skip self if not enabled
+            if (ent->m_IDX == g_IEngine->GetLocalPlayer() && !chamsself)
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            // Skip teammates if not enabled
+            if (!teammates && !ent->m_bEnemy() && playerlist::IsDefault(ent))
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            // Skip disguised if not enabled
+            if (!disguised && IsPlayerDisguised(ent))
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            // If legit mode is off, render through walls first
+            if (!legit)
+            {
+                ChamColors colors = GetChamColors(entity, true);
+                colors.rgba.a = *cham_alpha;
+                ApplyChams(colors, *recursive, false, *overlay_chams, true, false, false, entity, this_, state, info, bone);
+            }
+
+            // Then render normal chams
+            ChamColors colors = GetChamColors(entity, false);
+            colors.rgba.a = *cham_alpha;
+            ApplyChams(colors, *recursive, *render_original, *overlay_chams, false, false, false, entity, this_, state, info, bone);
+            return;
+        }
+
+        // Handle buildings
+        CachedEntity *ent = ENTITY(entity->entindex());
+        if (buildings && ent && ent->m_Type() == ENTITY_BUILDING)
+        {
+            // Skip teammate buildings if not enabled
+            if (!ent->m_bEnemy() && !teammate_buildings && !teammates)
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            if (ent->m_iHealth() == 0 || !ent->m_iHealth())
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            if (CE_BYTE(LOCAL_E, netvar.m_bCarryingObject) && ent->m_IDX == HandleToIDX(CE_INT(LOCAL_E, netvar.m_hCarriedObject)))
+                return original::DrawModelExecute(this_, state, info, bone);
+
+            // If legit mode is off, render through walls first
+            if (!legit)
+            {
+                ChamColors colors = GetChamColors(entity, true);
+                if (health)
+                    colors = ChamColors(colors::Health_dimgreen(ent->m_iHealth(), ent->m_iMaxHealth()));
+                ApplyChams(colors, *recursive, false, *overlay_chams, true, false, false, entity, this_, state, info, bone);
+            }
+
+            // Then render normal chams
+            ChamColors colors = GetChamColors(entity, false);
+            if (health)
+                colors = ChamColors(colors::Health_dimgreen(ent->m_iHealth(), ent->m_iMaxHealth()));
+            ApplyChams(colors, *recursive, *render_original, *overlay_chams, false, false, false, entity, this_, state, info, bone);
+            return;
+        }
+
+        // Handle projectiles
+        if (ent && ent->m_Type() == ENTITY_PROJECTILE)
+        {
+            if (ent->m_iClassID() == CL_CLASS(CTFGrenadePipebombProjectile))
+            {
+                bool is_pipe = CE_INT(ent, netvar.iPipeType) != 1;
+                bool is_local = HandleToIDX(CE_INT(ent, netvar.hThrower)) == g_pLocalPlayer->entity->m_IDX;
+
+                // Handle pipes
+                if (is_pipe && pipes)
                 {
-                    // Ensure a valid entity
-                    CachedEntity *ent = ENTITY(info.entity_index);
-                    if (CE_GOOD(ent))
+                    if ((is_local && pipes_local && chamsself) || (!is_local && ent->m_bEnemy()))
                     {
-                        // Get original to restore to later
-                        rgba_t original_color;
-                        g_IVRenderView->GetColorModulation(original_color);
-                        original_color.a = g_IVRenderView->GetBlend();
-
-                        // Player and entity chams
-                        if (enable)
+                        // If legit mode is off, render through walls first
+                        if (!legit)
                         {
-                            // First time has ignorez, 2nd time not
-                            for (int i = 1; i >= 0; i--)
-                            {
-                                if (i && legit)
-                                    continue;
-                                if (!i && singlepass)
-                                    continue;
-
-                                // Setup colors
-                                auto colors   = GetChamColors(entity, i);
-                                colors.rgba.a = *cham_alpha;
-
-                                // Apply chams according to user settings
-                                ApplyChams(colors, *recursive, *render_original, *overlay_chams, i, false, false, entity, this_, state, info, bone);
-                            }
-                        }
-                        // Backtrack chams
-                        namespace bt = hacks::tf2::backtrack;
-                        if (bt::chams && bt::backtrackEnabled())
-                        {
-                            // TODO: Allow for a fade between the entity's color and a specified color, it would look cool but i'm lazy
-                            if (ent->m_bAlivePlayer() && (int) bt::bt_data.size() >= info.entity_index && info.entity_index > 0)
-                            {
-                                // Get ticks
-                                auto ticks = bt::bt_data.at(info.entity_index - 1);
-
-                                auto good_ticks = bt::getGoodTicks(ENTITY(info.entity_index));
-                                if (good_ticks)
-                                {
-                                    // Setup chams according to user settings
-                                    ChamColors backtrack_colors;
-                                    backtrack_colors.rgba         = *bt::chams_color;
-                                    backtrack_colors.rgba_overlay = *bt::chams_color_overlay;
-                                    backtrack_colors.envmap_r     = *bt::chams_envmap_tint_r;
-                                    backtrack_colors.envmap_g     = *bt::chams_envmap_tint_g;
-                                    backtrack_colors.envmap_b     = *bt::chams_envmap_tint_b;
-
-                                    for (unsigned i = 0; i <= (unsigned) std::max(*bt::chams_ticks, 1); i++)
-                                    {
-                                        // Can't draw more than we have
-                                        if (i >= good_ticks->size())
-                                            break;
-                                        if (!(*good_ticks)[i].bones.empty())
-                                            ApplyChams(backtrack_colors, false, false, *bt::chams_overlay, false, *bt::chams_wireframe, false, entity, this_, state, info, (*good_ticks)[i].bones.data());
-                                    }
-                                }
-                            }
+                            ChamColors colors = GetChamColors(entity, true);
+                            ApplyChams(colors, *recursive, false, *overlay_chams, true, false, false, entity, this_, state, info, bone);
                         }
 
-                        // Reset it!
-                        g_IVModelRender->ForcedMaterialOverride(nullptr);
-                        g_IVRenderView->SetColorModulation(original_color);
-                        g_IVRenderView->SetBlend(original_color.a);
+                        // Then render normal chams
+                        ChamColors colors = GetChamColors(entity, false);
+                        ApplyChams(colors, *recursive, *render_original, *overlay_chams, false, false, false, entity, this_, state, info, bone);
+                        return;
+                    }
+                }
+                // Handle stickies
+                else if (!is_pipe && stickies)
+                {
+                    if ((is_local && stickies_local && chamsself) || (!is_local && ent->m_bEnemy()))
+                    {
+                        // If legit mode is off, render through walls first
+                        if (!legit)
+                        {
+                            ChamColors colors = GetChamColors(entity, true);
+                            ApplyChams(colors, *recursive, false, *overlay_chams, true, false, false, entity, this_, state, info, bone);
+                        }
+
+                        // Then render normal chams
+                        ChamColors colors = GetChamColors(entity, false);
+                        ApplyChams(colors, *recursive, *render_original, *overlay_chams, false, false, false, entity, this_, state, info, bone);
                         return;
                     }
                 }
             }
         }
+
+        // Handle medkits and ammo boxes
+        if (ent && ent->m_Type() == ENTITY_GENERIC)
+        {
+            switch (ent->m_ItemType())
+            {
+            case ITEM_HEALTH_LARGE:
+            case ITEM_HEALTH_MEDIUM:
+            case ITEM_HEALTH_SMALL:
+                if (*medkits)
+                {
+                    // If legit mode is off, render through walls first
+                    if (!legit)
+                    {
+                        ChamColors colors = ChamColors(colors::EntityF(ent));
+                        ApplyChams(colors, *recursive, false, *overlay_chams, true, false, false, entity, this_, state, info, bone);
+                    }
+
+                    // Then render normal chams
+                    ChamColors colors = ChamColors(colors::EntityF(ent));
+                    ApplyChams(colors, *recursive, *render_original, *overlay_chams, false, false, false, entity, this_, state, info, bone);
+                    return;
+                }
+                break;
+            case ITEM_AMMO_LARGE:
+            case ITEM_AMMO_MEDIUM:
+            case ITEM_AMMO_SMALL:
+                if (*ammobox)
+                {
+                    // If legit mode is off, render through walls first
+                    if (!legit)
+                    {
+                        ChamColors colors = ChamColors(colors::EntityF(ent));
+                        ApplyChams(colors, *recursive, false, *overlay_chams, true, false, false, entity, this_, state, info, bone);
+                    }
+
+                    // Then render normal chams
+                    ChamColors colors = ChamColors(colors::EntityF(ent));
+                    ApplyChams(colors, *recursive, *render_original, *overlay_chams, false, false, false, entity, this_, state, info, bone);
+                    return;
+                }
+                break;
+            default:
+                break;
+            }
+        }
     }
-    IClientUnknown *unk = info.pRenderable->GetIClientUnknown();
-    if (unk)
+    catch (...)
     {
-        IClientEntity *ent = unk->GetIClientEntity();
-        if (ent)
-            if (ent->entindex() == spectator_target)
-                return;
+        // Ignore any exceptions
     }
-    // Don't do it when we are trying to enforce backtrack chams
-    // if (!hacks::tf2::backtrack::isDrawing)
+
     return original::DrawModelExecute(this_, state, info, bone);
-} // namespace hooked_methods
+}
 } // namespace hooked_methods
