@@ -1,7 +1,7 @@
 <Tab name="Chams">
     <TabContainer width="fill" height="fill">
         <Tab name="Chams" padding="4 4 4 4">
-            <Box padding="12 6 6 6" width="content" height="content" name="Chams">
+            <Box padding="12 6 6 6" width="content" height="content" name="PROB. WILL CRASH!!!!1">
                 <List width="200">
                     <AutoVariable width="fill" target="chams.enable" label="Entity Chams"/>
                     <AutoVariable width="fill" target="chams.legit" label="Legit" tooltip="Don't show chams through walls."/>

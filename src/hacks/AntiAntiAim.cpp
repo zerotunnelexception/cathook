@@ -76,15 +76,32 @@ static std::array<PlayerResolverData, MAX_PLAYERS> player_resolver_data;
 
 static inline void modifyAngles()
 {
+    if (!g_IEngine->IsInGame())
+        return;
+        
     for (auto const &player : entity_cache::player_cache)
     {
-
-        if (CE_BAD(player) || !player->m_bAlivePlayer() || !player->m_bEnemy() || !player->player_info->friendsID)
+        if (!player || CE_BAD(player) || !player->m_bAlivePlayer() || !player->m_bEnemy())
             continue;
-        auto &data  = resolver_map[player->player_info->friendsID];
+            
+        // Add null check for player info
+        if (!player->player_info || !player->player_info->friendsID)
+            continue;
+            
+        // Add bounds check
+        if (player->m_IDX <= 0 || player->m_IDX >= MAX_PLAYERS)
+            continue;
+            
+        auto &data = resolver_map[player->player_info->friendsID];
+        if (CE_BAD(player))
+            continue;
+            
         auto &angle = CE_VECTOR(player, netvar.m_angEyeAngles);
-        angle.x     = data.new_angle.x;
-        angle.y     = data.new_angle.y;
+        if (std::isnan(data.new_angle.x) || std::isnan(data.new_angle.y))
+            continue;
+            
+        angle.x = data.new_angle.x;
+        angle.y = data.new_angle.y;
     }
 }
 static inline void CreateMove()
@@ -124,7 +141,7 @@ static std::array<float, 8> yaw_resolves{ 0.0f, 180.0f, 90.0f, -90.0f, 45.0f, -4
 
 
 bool IsAntiAiming(CachedEntity* entity) {
-    if (!entity || entity->m_Type() != ENTITY_PLAYER)
+    if (!entity || entity->m_Type() != ENTITY_PLAYER || entity->m_IDX <= 0 || entity->m_IDX >= MAX_PLAYERS)
         return false;
 
     auto& data = player_resolver_data[entity->m_IDX];
@@ -135,8 +152,14 @@ bool IsAntiAiming(CachedEntity* entity) {
         
     data.last_simtime = simtime;
     
-    // Get current angles
+    // Get current angles with safety check
+    if (CE_BAD(entity))
+        return false;
+        
     Vector angles = CE_VECTOR(entity, netvar.m_angEyeAngles);
+    if (std::isnan(angles.x) || std::isnan(angles.y))
+        return false;
+        
     float curr_pitch = angles.x;
     float curr_yaw = angles.y;
     
@@ -216,15 +239,15 @@ bool IsAntiAiming(CachedEntity* entity) {
     return data.is_fake;
 }
 
-static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity)
+static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity *ent)
 {
-    if (!entity || !IsAntiAiming(entity))
+    if (!ent || CE_BAD(ent) || !ent->m_bAlivePlayer() || ent->m_IDX <= 0 || ent->m_IDX >= MAX_PLAYERS)
         return angle;
         
-    auto& data = player_resolver_data[entity->m_IDX];
+    auto& data = player_resolver_data[ent->m_IDX];
     brute.original_angle.y = angle;
     
-    // Normalize
+    // Normalize angle first
     while (angle > 180) angle -= 360;
     while (angle < -180) angle += 360;
 
@@ -243,7 +266,7 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
         if (data.resolve_type == 1) { // Legit AA
             // For legit AA, try to predict based on velocity
             Vector velocity;
-            velocity::EstimateAbsVelocity(RAW_ENT(entity), velocity);
+            velocity::EstimateAbsVelocity(RAW_ENT(ent), velocity);
             if (velocity.Length2D() > 0.1f) {
                 QAngle vel_angles;
                 VectorAngles(velocity, vel_angles);
@@ -274,7 +297,7 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
                 
             case 3: // Spin
                 // Try to predict the current spin angle
-                spin_speed = (angle - data.last_eye_yaw) / (data.last_simtime - CE_FLOAT(entity, netvar.m_flSimulationTime));
+                spin_speed = (angle - data.last_eye_yaw) / (data.last_simtime - CE_FLOAT(ent, netvar.m_flSimulationTime));
                 angle += spin_speed * 0.2f; // Predict 0.2s ahead
                 break;
                 
@@ -322,7 +345,7 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
     while (angle < -180) angle += 360;
     
     // Update tracking data
-    data.last_eye_yaw = CE_VECTOR(entity, netvar.m_angEyeAngles).y;
+    data.last_eye_yaw = CE_VECTOR(ent, netvar.m_angEyeAngles).y;
     brute.new_angle.y = angle;
     data.resolved_yaw = angle;
     data.resolved = true;
@@ -331,7 +354,7 @@ static float resolveAngleYaw(float angle, brutedata &brute, CachedEntity* entity
 }
 
 void OnHit(CachedEntity* target) {
-    if (!target || target->m_Type() != ENTITY_PLAYER)
+    if (!target || target->m_Type() != ENTITY_PLAYER || target->m_IDX <= 0 || target->m_IDX >= MAX_PLAYERS)
         return;
         
     auto& data = player_resolver_data[target->m_IDX];
@@ -344,7 +367,7 @@ void OnHit(CachedEntity* target) {
 }
 
 void OnMiss(CachedEntity* target) {
-    if (!target || target->m_Type() != ENTITY_PLAYER)
+    if (!target || target->m_Type() != ENTITY_PLAYER || target->m_IDX <= 0 || target->m_IDX >= MAX_PLAYERS)
         return;
         
     auto& data = player_resolver_data[target->m_IDX];
@@ -359,26 +382,34 @@ void OnMiss(CachedEntity* target) {
 
 static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
 {
+    if (!ent || CE_BAD(ent))
+        return angle;
+        
     brute.original_angle.x = angle;
 
     // Get CSniperDot associated with entity
     CachedEntity *sniper_dot = nullptr;
 
-    // Get Weapon id
-    auto weapon_id = HandleToIDX(CE_INT(ent, netvar.hActiveWeapon));
+    // Get Weapon id with bounds check
+    int weapon_id = HandleToIDX(CE_INT(ent, netvar.hActiveWeapon));
+    if (IDX_BAD(weapon_id))
+        return angle;
 
-    // Check IDX for validity
-    if (IDX_GOOD(weapon_id))
+    // Check weapon for validity
+    auto weapon_ent = ENTITY(weapon_id);
+    if (CE_GOOD(weapon_ent))
     {
-        auto weapon_ent = ENTITY(weapon_id);
-        // Check weapon for validity
-        if (CE_GOOD(weapon_ent) && (weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifle) || weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifleDecap) || weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifleClassic)))
+        if (weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifle) || 
+            weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifleDecap) || 
+            weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifleClassic))
         {
-            // Get Sniperdot
-            sniper_dot = sniperdot_array.at(ent->m_IDX - 1);
-            // Check if the dot is still good, if not then set to nullptr
-            if (CE_BAD(sniper_dot) || sniper_dot->m_iClassID() != CL_CLASS(CSniperDot))
-                sniper_dot = nullptr;
+            // Bounds check for sniper dot array
+            if (ent->m_IDX > 0 && ent->m_IDX <= MAX_PLAYERS)
+            {
+                sniper_dot = sniperdot_array.at(ent->m_IDX - 1);
+                if (CE_BAD(sniper_dot) || sniper_dot->m_iClassID() != CL_CLASS(CSniperDot))
+                    sniper_dot = nullptr;
+            }
         }
     }
     
@@ -439,9 +470,13 @@ static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
 
 void increaseBruteNum(int idx)
 {
-    auto ent = ENTITY(idx);
-    if (CE_BAD(ent) || !ent->player_info->friendsID)
+    if (idx <= 0 || idx >= MAX_PLAYERS)
         return;
+        
+    auto ent = ENTITY(idx);
+    if (CE_BAD(ent) || !ent->player_info || !ent->player_info->friendsID)
+        return;
+        
     auto &data = hacks::shared::anti_anti_aim::resolver_map[ent->player_info->friendsID];
     
     // If we've hit enough times in a row, consider this angle resolved
@@ -580,7 +615,12 @@ static float NormalizeAngle(float angle) {
 
 
 void UpdateResolver(int ent_idx, CachedEntity* player) {
-    if (!player || !g_IEngine->IsInGame())
+    // Add bounds check
+    if (ent_idx <= 0 || ent_idx >= MAX_PLAYERS || !player || !g_IEngine->IsInGame())
+        return;
+
+    // Add null checks for player entity
+    if (CE_BAD(player) || !player->m_bAlivePlayer())
         return;
 
     static std::array<float, MAX_PLAYERS> last_yaw{};
@@ -589,11 +629,16 @@ void UpdateResolver(int ent_idx, CachedEntity* player) {
     static std::array<float, MAX_PLAYERS> jitter_delta{};
     static std::array<Timer, MAX_PLAYERS> update_timer{};
 
-    float eye_yaw = CE_VECTOR(player, netvar.m_angEyeAngles).y;
-    float eye_pitch = CE_VECTOR(player, netvar.m_angEyeAngles).x;
-
-    if (std::isnan(eye_yaw) || std::isnan(eye_pitch))
+    // Get eye angles with safety check
+    if (CE_BAD(player))
         return;
+        
+    Vector eye_angles = CE_VECTOR(player, netvar.m_angEyeAngles);
+    if (std::isnan(eye_angles.x) || std::isnan(eye_angles.y))
+        return;
+        
+    float eye_yaw = eye_angles.y;
+    float eye_pitch = eye_angles.x;
 
     if (update_timer[ent_idx].check(50)) {
         float delta = std::abs(eye_yaw - last_yaw[ent_idx]);
