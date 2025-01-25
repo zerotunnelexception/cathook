@@ -113,7 +113,7 @@ void dispatchUserMessage(bf_read &buffer, int type)
             local_kick_timer.update();
         }
 
-        // Handle always vote no
+        //  always vote no
         if (*vote_always_no)
         {
             vote_command = { strfmt("vote %d option2", vote_id).get(), 0 };
@@ -121,11 +121,25 @@ void dispatchUserMessage(bf_read &buffer, int type)
             break;
         }
 
-        // Handle vote no on friends
+        // vote no on friends
         if (*vote_no_on_friends)
         {
             auto &pl = playerlist::AccessData(info.friendsID);
-            if (pl.state == playerlist::k_EState::FRIEND || pl.state == playerlist::k_EState::CAT)
+            // Check if target is a local IPC bot
+            bool is_local_bot = false;
+            if (ipc::peer && ipc::peer->memory)
+            {
+                for (unsigned i = 0; i < cat_ipc::max_peers; i++)
+                {
+                    if (!ipc::peer->memory->peer_data[i].free && 
+                        ipc::peer->memory->peer_user_data[i].friendid == info.friendsID)
+                    {
+                        is_local_bot = true;
+                        break;
+                    }
+                }
+            }
+            if (pl.state == playerlist::k_EState::FRIEND || pl.state == playerlist::k_EState::CAT || is_local_bot)
             {
                 vote_command = { strfmt("vote %d option2", vote_id).get(), 0 };
                 vote_command.timer.update();
@@ -133,14 +147,33 @@ void dispatchUserMessage(bf_read &buffer, int type)
             }
         }
 
-        // Handle vote yes on non-friends
+        // vote yes on non-friends
         if (*vote_yes_on_non_friends)
         {
             auto &pl = playerlist::AccessData(info.friendsID);
             if (pl.state != playerlist::k_EState::FRIEND && pl.state != playerlist::k_EState::CAT)
             {
-                vote_command = { strfmt("vote %d option1", vote_id).get(), 0 };
-                vote_command.timer.update();
+                // Check if target is a local IPC bot
+                bool is_local_bot = false;
+                if (ipc::peer && ipc::peer->memory)
+                {
+                    for (unsigned i = 0; i < cat_ipc::max_peers; i++)
+                    {
+                        if (!ipc::peer->memory->peer_data[i].free && 
+                            ipc::peer->memory->peer_user_data[i].friendid == info.friendsID)
+                        {
+                            is_local_bot = true;
+                            break;
+                        }
+                    }
+                }
+                
+             
+                if (!is_local_bot)
+                {
+                    vote_command = { strfmt("vote %d option1", vote_id).get(), 0 };
+                    vote_command.timer.update();
+                }
                 break;
             }
         }
