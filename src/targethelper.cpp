@@ -23,6 +23,14 @@ int GetScoreForEntity(CachedEntity *entity)
     if (!entity)
         return 0;
 
+    // First check if player is marked as RAGE - give highest priority
+    if (entity->m_Type() == ENTITY_PLAYER)
+    {
+        auto &pl = playerlist::AccessData(entity);
+        if (pl.state == playerlist::k_EState::RAGE)
+            return 100; // Maximum priority for RAGE players
+    }
+
     if (entity->m_Type() == ENTITY_BUILDING)
     {
         if (entity->m_iClassID() == CL_CLASS(CObjectSentrygun))

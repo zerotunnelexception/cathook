@@ -112,7 +112,7 @@ void entity_cache::Update()
         if (g_Settings.bInvalid)
             return;
 
-        max = std::min(g_IEntityList->GetHighestEntityIndex(), MAX_ENTITIES - 1);
+        max = std::min(g_IEntityList->GetHighestEntityIndex(), MAX_ENTITIES - 1);   
         int current_ents = g_IEntityList->NumberOfEntities(false);
 
         valid_ents.clear();
@@ -155,79 +155,86 @@ void entity_cache::Update()
             try
             {
                 entity = g_IEntityList->GetClientEntity(i);
-            }
-            catch (...) 
-            {
-                continue;
-            }
+                if (!entity)
+                    continue;
+                    
+     
+                if (!entity->GetClientClass() || !entity->GetClientClass()->m_ClassID)
+                    continue;
+                    
+ 
+                if (entity->IsDormant() || !entity->GetRefEHandle().IsValid())
+                    continue;
 
-            if (!entity || !entity->GetClientClass() || !entity->GetClientClass()->m_ClassID)
-                continue;
+                auto it = array.find(i);
+                if (it == array.end())
+                {
+                    try
+                    {
+                        it = array.try_emplace(i, CachedEntity{ i }).first;
+                    }
+                    catch (...)
+                    {
+                        continue;
+                    }
+                }
 
-            auto it = array.find(i);
-            if (it == array.end())
-            {
+                CachedEntity &ent = it->second;
+                bool was_alive = ent.m_bAlivePlayer();
+
                 try
                 {
-                    it = array.try_emplace(i, CachedEntity{ i }).first;
+                    ent.Update();
                 }
                 catch (...)
                 {
+                    ent.Reset();
                     continue;
                 }
-            }
 
-            CachedEntity &ent = it->second;
-            bool was_alive = ent.m_bAlivePlayer();
+                IClientEntity* internal = ent.InternalEntity();
+                if (!internal || internal->IsDormant())
+                    continue;
 
-            try
-            {
-                ent.Update();
+                bool is_alive = ent.m_bAlivePlayer();
+                if (was_alive && !is_alive)
+                {
+                    ent.Reset();
+                    continue;
+                }
+
+                valid_ents.push_back(&ent);
+                EntityType type = ent.m_Type();
+
+                if ((type == ENTITY_PLAYER || type == ENTITY_BUILDING || type == ENTITY_NPC) && is_alive)
+                {
+                    try
+                    {
+                        if (!internal->IsDormant())
+                            ent.hitboxes.UpdateBones();
+
+                        if (type == ENTITY_PLAYER)
+                            player_cache.push_back(&ent);
+                    }
+                    catch (...) { }
+                }
+
+                if (type == ENTITY_PLAYER)
+                {
+                    try
+                    {
+                        if (!ent.player_info)
+                            ent.player_info = new player_info_s;
+                        
+                        if (ent.player_info)
+                            GetPlayerInfo(ent.m_IDX, ent.player_info);
+                    }
+                    catch (...) { }
+                }
             }
             catch (...)
             {
-                ent.Reset();
                 continue;
-            }
-
-            IClientEntity* internal = ent.InternalEntity();
-            if (!internal || internal->IsDormant())
-                continue;
-
-            bool is_alive = ent.m_bAlivePlayer();
-            if (was_alive && !is_alive)
-            {
-                ent.Reset();
-                continue;
-            }
-
-            valid_ents.push_back(&ent);
-            EntityType type = ent.m_Type();
-
-            if ((type == ENTITY_PLAYER || type == ENTITY_BUILDING || type == ENTITY_NPC) && is_alive)
-            {
-                try
-                {
-                    if (!internal->IsDormant())
-                        ent.hitboxes.UpdateBones();
-
-                    if (type == ENTITY_PLAYER)
-                        player_cache.push_back(&ent);
-                }
-                catch (...) { }
-            }
-
-            if (type == ENTITY_PLAYER)
-            {
-                try
-                {
-                    if (!ent.player_info)
-                        ent.player_info = new player_info_s;
-                    
-                    if (ent.player_info)
-                        GetPlayerInfo(ent.m_IDX, ent.player_info);
-                }
-                catch (...) { }
             }
         }
 

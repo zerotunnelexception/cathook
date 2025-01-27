@@ -35,7 +35,7 @@ static settings::Int blacklist_delay("navbot.proximity-blacklist.delay", "500");
 static settings::Boolean blacklist_dormat("navbot.proximity-blacklist.dormant", "false");
 static settings::Int blacklist_delay_dormat("navbot.proximity-blacklist.delay-dormant", "1000");
 static settings::Int blacklist_slightdanger_limit("navbot.proximity-blacklist.slight-danger.amount", "2");
-static settings::Boolean engie_mode("navbot.engineer-mode", "true");
+static settings::Boolean engie_mode("navbot.engineer-mode", "false");
 #if ENABLE_VISUALS
 static settings::Boolean draw_danger("navbot.draw-danger", "false");
 #endif
@@ -260,15 +260,40 @@ std::pair<CachedEntity *, float> getNearestPlayerDistance()
 {
     float distance         = FLT_MAX;
     CachedEntity *best_ent = nullptr;
-    for (auto const &ent: entity_cache::player_cache)
+    
+    try 
     {
-        
-        if (CE_VALID(ent) && ent->m_vecDormantOrigin() && g_pPlayerResource->isAlive(ent->m_IDX) && ent->m_bEnemy() && g_pLocalPlayer->v_Origin.DistTo(ent->m_vecOrigin()) < distance && player_tools::shouldTarget(ent) && !IsPlayerInvisible(ent))
+        for (auto const &ent: entity_cache::player_cache)
         {
-            distance = g_pLocalPlayer->v_Origin.DistTo(*ent->m_vecDormantOrigin());
-            best_ent = ent;
+            if (!ent || CE_BAD(ent))
+                continue;
+                
+            // Additional validation
+            if (!ent->InternalEntity() || !ent->InternalEntity()->GetRefEHandle().IsValid())
+                continue;
+                
+            if (!ent->m_vecDormantOrigin() || !g_pPlayerResource->isAlive(ent->m_IDX))
+                continue;
+                
+            if (!ent->m_bEnemy() || !player_tools::shouldTarget(ent))
+                continue;
+                
+            if (IsPlayerInvisible(ent))
+                continue;
+                
+            float dist = g_pLocalPlayer->v_Origin.DistTo(*ent->m_vecDormantOrigin());
+            if (dist < distance)
+            {
+                distance = dist;
+                best_ent = ent;
+            }
         }
     }
+    catch (...)
+    {
+        return { nullptr, FLT_MAX };
+    }
+    
     return { best_ent, distance };
 }
 
@@ -807,6 +832,14 @@ bool stayNear()
     // Check and use our previous target if available
     if (isStayNearTargetValid(previous_target))
     {
+        // Check if target is RAGE status - if so, always keep targeting them
+        auto &pl = playerlist::AccessData(previous_target);
+        if (pl.state == playerlist::k_EState::RAGE)
+        {
+            if (stayNearTarget(previous_target))
+                return true;
+        }
+        
         auto ent_origin = previous_target->m_vecDormantOrigin();
         if (ent_origin)
         {
@@ -841,7 +874,26 @@ bool stayNear()
         lowest_check_index = 0;
 
     int calls = 0;
-    // Test all entities
+    
+    // First check for RAGE players - they get highest priority
+    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    {
+        CachedEntity* ent = ENTITY(i);
+        if (!isStayNearTargetValid(ent))
+            continue;
+            
+        auto &pl = playerlist::AccessData(ent);
+        if (pl.state == playerlist::k_EState::RAGE)
+        {
+            if (stayNearTarget(ent))
+            {
+                previous_target = ent;
+                return true;
+            }
+        }
+    }
+
+    // Then check other players
     for (int i = lowest_check_index; i <= g_IEngine->GetMaxClients(); ++i)
     {
         CachedEntity* ent = ENTITY(i);
@@ -855,6 +907,12 @@ bool stayNear()
             calls--;
             continue;
         }
+        
+        // Skip RAGE players as we already checked them
+        auto &pl = playerlist::AccessData(ent);
+        if (pl.state == playerlist::k_EState::RAGE)
+            continue;
+            
         // Succeeded pathing
         if (stayNearTarget(ent))
         {
@@ -871,7 +929,7 @@ bool stayNear()
 bool meleeAttack(int slot, std::pair<CachedEntity *, float> &nearest)
 {
     // There is no point in engaging the melee AI if we are not using melee
-    if (slot != melee || !nearest.first)
+    if (slot != melee || !nearest.first || CE_BAD(nearest.first))
     {
         if (navparser::NavEngine::current_priority == prio_melee)
             navparser::NavEngine::cancelPath();
@@ -883,6 +941,8 @@ bool meleeAttack(int slot, std::pair<CachedEntity *, float> &nearest)
         return false;
 
     auto raw_local = RAW_ENT(LOCAL_E);
+    if (!raw_local)
+        return false;
 
     // We are charging, let the charge aimbot do it's job
     if (HasCondition<TFCond_Charging>(LOCAL_E))
@@ -899,15 +959,13 @@ bool meleeAttack(int slot, std::pair<CachedEntity *, float> &nearest)
         trace_t trace;
         trace::filter_default.SetSelf(raw_local);
 
-        auto hb = nearest.first->hitboxes.GetHitbox(spine_3);
-        if (hb)
-        {
-            ray.Init(g_pLocalPlayer->v_Origin + Vector{ 0, 0, 20 }, hb->center, raw_local->GetCollideable()->OBBMins(), raw_local->GetCollideable()->OBBMaxs());
-            g_ITrace->TraceRay(ray, MASK_PLAYERSOLID, &trace::filter_default, &trace);
-            isVisible = (IClientEntity *) trace.m_pEnt == RAW_ENT(nearest.first);
-        }
-        else
-            isVisible = false;
+        auto hitbox = nearest.first->hitboxes.GetHitbox(spine_3);
+        if (!hitbox)
+            return false;
+            
+        ray.Init(g_pLocalPlayer->v_Origin + Vector{ 0, 0, 20 }, hitbox->center, raw_local->GetCollideable()->OBBMins(), raw_local->GetCollideable()->OBBMaxs());
+        g_ITrace->TraceRay(ray, MASK_PLAYERSOLID, &trace::filter_default, &trace);
+        isVisible = (IClientEntity *) trace.m_pEnt == RAW_ENT(nearest.first);
     }
 
     // Charge aimbot things
@@ -1482,6 +1540,10 @@ bool escapeDanger()
     auto *local_nav = navparser::NavEngine::findClosestNavSquare(g_pLocalPlayer->v_Origin);
     auto blacklist  = navparser::NavEngine::getFreeBlacklist();
 
+    // Check if we're in spawn - if so, ignore danger and focus on getting out
+    if (local_nav && (local_nav->m_TFattributeFlags & TF_NAV_SPAWN_ROOM_RED || local_nav->m_TFattributeFlags & TF_NAV_SPAWN_ROOM_BLUE))
+        return false;
+
     // In danger, try to run (besides if it's a building spot, don't run away from that)
     if (blacklist->find(local_nav) != blacklist->end())
     {
@@ -1522,6 +1584,47 @@ bool escapeDanger()
     // No longer in danger
     else if (navparser::NavEngine::current_priority == danger)
         navparser::NavEngine::cancelPath();
+    return false;
+}
+
+bool escapeSpawn()
+{
+    static Timer spawn_escape_cooldown{};
+    
+    // Don't try too often
+    if (!spawn_escape_cooldown.test_and_set(500))
+        return navparser::NavEngine::current_priority == escape_spawn;
+        
+    auto *local_nav = navparser::NavEngine::findClosestNavSquare(g_pLocalPlayer->v_Origin);
+    if (!local_nav)
+        return false;
+        
+    // Check if we're in spawn
+    bool in_spawn = local_nav->m_TFattributeFlags & (TF_NAV_SPAWN_ROOM_RED | TF_NAV_SPAWN_ROOM_BLUE);
+    
+    // Cancel if we're not in spawn and this is running
+    if (!in_spawn && navparser::NavEngine::current_priority == escape_spawn)
+    {
+        navparser::NavEngine::cancelPath();
+        return false;
+    }
+    
+    // Not in spawn, don't try
+    if (!in_spawn)
+        return false;
+        
+    // Try to find an exit
+    for (auto &nav_area : navparser::NavEngine::getNavFile()->m_areas)
+    {
+        // Skip spawn areas
+        if (nav_area.m_TFattributeFlags & (TF_NAV_SPAWN_ROOM_RED | TF_NAV_SPAWN_ROOM_BLUE))
+            continue;
+            
+        // Try to get there
+        if (navparser::NavEngine::navTo(nav_area.m_center, escape_spawn))
+            return true;
+    }
+    
     return false;
 }
 
@@ -1676,7 +1779,10 @@ static void CreateMove()
     updateSlot(nearest);
     updateEnemyBlacklist(slot);
 
-    // Attack people with melee first
+    // First priority should be getting out of spawn
+    if (escapeSpawn())
+        return;
+    // Attack people with melee
     if (meleeAttack(slot, nearest))
         return;
     // Try to escape danger

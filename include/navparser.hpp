@@ -21,7 +21,9 @@ enum Priority_list
     engineer,
     health,
     danger,
-    followbot
+    followbot,
+    rage_target,
+    escape_spawn,
 };
 
 namespace navparser
