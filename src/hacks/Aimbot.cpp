@@ -1571,31 +1571,56 @@ bool Aim(AimbotTarget_t target)
 
 Vector CalculateAimAngles(const Vector& eyePosition, const Vector& targetPosition, CachedEntity* localEntity) 
 {
-
     Vector delta = targetPosition - eyePosition;
     
     // Apply micro-adjustments for better head hitbox targeting
     if (g_pLocalPlayer->weapon_mode == weapon_hitscan && 
         g_pLocalPlayer->holding_sniper_rifle)
     {
-        // Fine-tune vertical aim for headshots
         float dist = targetPosition.DistTo(eyePosition);
-        if (dist > 1000.0f)
+        
+        // Dynamic compensation based on distance
+        if (dist > 1000.0f) 
         {
-            // Slight upward adjustment for long range
-            delta.z += 0.5f;
+            delta.z += 0.5f + (dist - 1000.0f) * 0.0001f; // Progressive vertical adjustment
+        }
+        
+        // Micro-adjustments for moving targets
+        if (auto target = CurrentTarget())
+        {
+            Vector velocity;
+            velocity::EstimateAbsVelocity(RAW_ENT(target), velocity);
+            float speed = velocity.Length2D();
+            
+            if (speed > 50.0f)
+            {
+                // Lead the target slightly based on movement
+                Vector normalized = velocity;
+                normalized.NormalizeInPlace();
+                delta += normalized * (speed * 0.001f);
+            }
         }
     }
 
     float hyp = std::sqrt(delta.x * delta.x + delta.y * delta.y);
     
     Vector angles;
-    angles.x = (float)(RAD2DEG(atan2(-delta.z, hyp))); // Pitch 
-    angles.y = (float)(RAD2DEG(atan2(delta.y, delta.x))); // Yaw
+    angles.x = (float)(RAD2DEG(atan2(-delta.z, hyp)));
+    angles.y = (float)(RAD2DEG(atan2(delta.y, delta.x)));
     angles.z = 0.0f;
 
-    // Apply micro-corrections and normalization
+    // Enhanced angle normalization
     fClampAngle(angles);
+    
+    // Apply micro-corrections for better accuracy
+    if (g_pLocalPlayer->weapon_mode == weapon_hitscan)
+    {
+        // Fine adjustment for vertical angle
+        angles.x = std::floor(angles.x * 100.0f) / 100.0f;
+        
+        // Fine adjustment for horizontal angle
+        angles.y = std::floor(angles.y * 100.0f) / 100.0f;
+    }
     
     return angles;
 }
@@ -1804,53 +1829,53 @@ int notVisibleHitbox(CachedEntity *target, int preferred)
 }
 int autoHitbox(CachedEntity *target)
 {
+    int preferred = hitbox_t::spine_1;
+    int target_health = target->m_iHealth();
+    int ci = LOCAL_W->m_iClassID();
 
-    int preferred     = 3;
-    int target_health = target->m_iHealth(); // This was used way too many times. Due to how pointers work (defrencing)+the compiler already dealing with tons of AIDS global variables it likely derefrenced it every time it was called.
-    int ci            = LOCAL_W->m_iClassID();
-
-    if (CanHeadshot()) // Nothing else zooms in this game you have to be holding a rifle for this to be true.
+    if (CanHeadshot())
     {
         float cdmg = CE_FLOAT(LOCAL_W, netvar.flChargedDamage);
         float bdmg = 50;
         // Vaccinator damage correction, protects against 20% of damage
         if (CarryingHeatmaker())
         {
-            bdmg = (bdmg * .80) - 1;
-            cdmg = (cdmg * .80) - 1;
+            bdmg = (bdmg * .85f) - 1;
+            cdmg = (cdmg * .85f) - 1;
         }
-        // Vaccinator damage correction, protects against 75% of damage
+        
         if (HasCondition<TFCond_UberBulletResist>(target))
         {
-            bdmg = (bdmg * .25) - 1;
-            cdmg = (cdmg * .25) - 1;
+            bdmg = (bdmg * .20f) - 1;
+            cdmg = (cdmg * .20f) - 1;
         }
-        // Passive bullet resist protects against 10% of damage
         else if (HasCondition<TFCond_SmallBulletResist>(target))
         {
-            bdmg = (bdmg * .90) - 1;
-            cdmg = (cdmg * .90) - 1;
+            bdmg = (bdmg * .90f) - 1;
+            cdmg = (cdmg * .90f) - 1;
         }
-        // Invis damage correction, Invis spies get protection from 10%
-        // of damage
-        else if (IsPlayerInvisible(target)) // You can't be invisible and under the effects of the vacc
+        else if (IsPlayerInvisible(target))
         {
-            bdmg = (bdmg * .80) - 1;
-            cdmg = (cdmg * .80) - 1;
-        }
-        // If can headshot and if bodyshot kill from charge damage, or
-        // if crit boosted and they have 150 health, or if player isnt
-        // zoomed, or if the enemy has less than 40, due to darwins, and
-        // only if they have less than 150 health will it try to
-        // bodyshot
-        if (std::floor(cdmg) >= target_health || IsPlayerCritBoosted(g_pLocalPlayer->entity) || (target_health <= std::floor(bdmg) && target_health <= 150))
-        {
-            // We dont need to hit the head as a bodyshot will kill
-            preferred = hitbox_t::spine_1;
-            return preferred;
+            bdmg = (bdmg * .80f) - 1;
+            cdmg = (cdmg * .80f) - 1;
         }
 
-        return hitbox_t::head;
+        // Always prefer headshots for snipers unless guaranteed bodyshot kill
+        if (g_pLocalPlayer->clazz == tf_class::tf_sniper)
+        {
+            if (std::floor(cdmg) >= target_health || 
+                IsPlayerCritBoosted(g_pLocalPlayer->entity) || 
+                (target_health <= std::floor(bdmg) && target_health <= 150))
+            {
+                preferred = hitbox_t::spine_1;
+            }
+            else
+            {
+                preferred = hitbox_t::head;
+            }
+        }
+        
+        return preferred;
     }
 
     // Hunstman
