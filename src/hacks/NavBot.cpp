@@ -184,54 +184,10 @@ bool getHealth(bool low_priority = false)
             std::sort(total_ents.begin(), total_ents.end(), [](CachedEntity *a, CachedEntity *b) { return a->m_flDistance() < b->m_flDistance(); });
         }
 
-        // Store our current position
-        static Vector last_target(0.0f);
-        bool target_changed = false;
-
         for (auto healthpack : total_ents)
-        {
-            // Get healthpack position and adjust for pickup
-            Vector target = healthpack->m_vecOrigin();
-            
-            // Adjust target position to be closer to the actual pickup point
-            target.z += 15.0f; // Raise slightly to ensure we're at pickup height
-            
-            // Check if target has changed significantly
-            if (target.DistTo(last_target) > 50.0f)
-            {
-                target_changed = true;
-                last_target = target;
-            }
-
-            // If we're very close to the health but can't pick it up, try small adjustments
-            if (target.DistTo(g_pLocalPlayer->v_Origin) < 200.0f && !target_changed)
-            {
-                // Try different offsets to find valid pickup position
-                const float offset = 150.0f;
-                const float half_offset = offset / 2.0f;
-                std::vector<Vector> test_positions = {
-                    target + Vector(offset, 0, 0),
-                    target + Vector(-offset, 0, 0),
-                    target + Vector(0, offset, 0),
-                    target + Vector(0, -offset, 0),
-                    target + Vector(half_offset, half_offset, 0),
-                    target + Vector(-half_offset, half_offset, 0),
-                    target + Vector(half_offset, -half_offset, 0),
-                    target + Vector(-half_offset, -half_offset, 0)
-                };
-
-                for (const auto &test_pos : test_positions)
-                {
-                    // Try to path to the test position
-                    if (navparser::NavEngine::navTo(test_pos, priority, true, test_pos.DistToSqr(g_pLocalPlayer->v_Origin) > 300.0f * 300.0f))
-                        return true;
-                }
-            }
-
-            // Try normal pathing to the target with increased distance check
-            if (navparser::NavEngine::navTo(target, priority, true, target.DistToSqr(g_pLocalPlayer->v_Origin) > 300.0f * 300.0f))
+            // If we succeeed, don't try to path to other packs
+            if (navparser::NavEngine::navTo(healthpack->m_vecOrigin(), priority, true, healthpack->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) > 200.0f * 200.0f))
                 return true;
-        }
         health_cooldown.update();
     }
     else if (navparser::NavEngine::current_priority == priority)
