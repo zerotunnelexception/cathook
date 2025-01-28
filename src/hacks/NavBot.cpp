@@ -185,9 +185,27 @@ bool getHealth(bool low_priority = false)
         }
 
         for (auto healthpack : total_ents)
+        {
             // If we succeeed, don't try to path to other packs
             if (navparser::NavEngine::navTo(healthpack->m_vecOrigin(), priority, true, healthpack->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) > 200.0f * 200.0f))
+            {
+                // Check if we are close enough to the health pack to pick it up
+                if (healthpack->m_vecOrigin().DistTo(g_pLocalPlayer->v_Origin) < 75.0f)
+                {
+                    // Try to touch the health pack
+                    auto local_nav = navparser::NavEngine::findClosestNavSquare(g_pLocalPlayer->v_Origin);
+                    if (local_nav)
+                    {
+                        Vector path_point = local_nav->getNearestPoint(healthpack->m_vecOrigin().AsVector2D());
+                        path_point.z = healthpack->m_vecOrigin().z;
+                        
+                        // Walk towards the health pack
+                        WalkTo(path_point);
+                    }
+                }
                 return true;
+            }
+        }
         health_cooldown.update();
     }
     else if (navparser::NavEngine::current_priority == priority)
@@ -225,12 +243,28 @@ bool getAmmo(bool force = false)
             std::sort(total_ents.begin(), total_ents.end(), [](CachedEntity *a, CachedEntity *b) { return a->m_flDistance() < b->m_flDistance(); });
         }
         for (auto ammopack : total_ents)
+        {
             // If we succeeed, don't try to path to other packs
             if (navparser::NavEngine::navTo(ammopack->m_vecOrigin(), ammo, true, ammopack->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) > 200.0f * 200.0f))
             {
+                // Check if we are close enough to the ammo pack to pick it up
+                if (ammopack->m_vecOrigin().DistTo(g_pLocalPlayer->v_Origin) < 75.0f)
+                {
+                    // Try to touch the ammo pack
+                    auto local_nav = navparser::NavEngine::findClosestNavSquare(g_pLocalPlayer->v_Origin);
+                    if (local_nav)
+                    {
+                        Vector path_point = local_nav->getNearestPoint(ammopack->m_vecOrigin().AsVector2D());
+                        path_point.z = ammopack->m_vecOrigin().z;
+                        
+                        // Walk towards the ammo pack
+                        WalkTo(path_point);
+                    }
+                }
                 was_force = force;
                 return true;
             }
+        }
         ammo_cooldown.update();
     }
     else if (navparser::NavEngine::current_priority == ammo && !was_force)
