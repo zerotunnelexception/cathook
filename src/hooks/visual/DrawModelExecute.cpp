@@ -15,8 +15,6 @@
     along with Cathook. If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Codeowners: aUniqueUser
-
 #include <PlayerTools.hpp>
 #include "common.hpp"
 #include "HookedMethods.hpp"
@@ -25,29 +23,32 @@
 #include "EffectGlow.hpp"
 #include "Aimbot.hpp"
 
-/* World visual rvars */
-static settings::Boolean no_arms{ "remove.arms", "false" };
+/* Core settings */
 static settings::Boolean enable{ "chams.enable", "false" };
 static settings::Boolean render_original{ "chams.original", "false" };
+static settings::Boolean legit{ "chams.legit", "false" };
+static settings::Boolean novis{ "chams.novis", "true" };
+static settings::Boolean no_arms{ "remove.arms", "false" };
 
-/* Cham target rvars */
-static settings::Boolean teammates{ "chams.show.teammates", "false" };
+/* Target settings */
 static settings::Boolean players{ "chams.show.players", "true" };
+static settings::Boolean teammates{ "chams.show.teammates", "false" };
 static settings::Boolean buildings{ "chams.show.buildings", "true" };
 static settings::Boolean chamsself{ "chams.self", "true" };
-
-/* Weapon chams settings */
 static settings::Boolean weapons_enemy{ "chams.weapons.enemy", "false" };
 static settings::Boolean weapons_teammate{ "chams.weapons.teammate", "false" };
 static settings::Boolean weapons_original{ "chams.weapons.original", "true" };
 
+/* Material settings */
+static settings::Int chams_type{ "chams.type", "0" };
+static settings::Boolean phong_enable{ "chams.phong", "true" };
+static settings::Int phong_boost{ "chams.phongboost", "2" };
+static settings::Float envmap_tint{ "chams.envmaptint", "0" };
+static settings::Float material_force_rimlight{ "chams.rimlight", "0" };
+
 /* Alpha settings */
 static settings::Float player_alpha{ "chams.player.alpha", "1" };
 static settings::Float building_alpha{ "chams.building.alpha", "1" };
-
-/* Seperate cham settings when ignorez */
-static settings::Boolean novis{ "chams.novis", "true" };
-static settings::Boolean legit{ "chams.legit", "false" };
 
 /* Team colors */
 static settings::Rgba visible_team_red{ "chams.red", "ff0000ff" };
@@ -55,55 +56,29 @@ static settings::Rgba visible_team_blu{ "chams.blu", "0000ffff" };
 static settings::Rgba novis_team_red{ "chams.novis.red", "ff8800ff" };
 static settings::Rgba novis_team_blu{ "chams.novis.blu", "bc00ffff" };
 
-/* Material settings */
-static settings::Int chams_type{ "chams.type", "0" };  // 0 = Normal, 1 = Flat, 2 = Shaded, 3 = Glossy, 4 = Glow, 5 = Wireframe
-static settings::Boolean phong_enable{ "chams.phong", "true" };
-static settings::Int phong_boost{ "chams.phongboost", "2" };
-static settings::Float envmap_tint{ "chams.envmaptint", "0" };
-static settings::Float material_force_rimlight{ "chams.rimlight", "0" };
-
-class Materials
-{
+class ChamsMaterial {
 public:
-    CMaterialReference mat_regular;
-    CMaterialReference mat_ignorez;
-    bool materials_created;
-    int last_chams_type;
-
-    Materials() : materials_created(false), last_chams_type(-1) {}
-
-    void Shutdown()
-    {
-        if (mat_regular.IsValid())
-            mat_regular.Shutdown();
-        if (mat_ignorez.IsValid())
-            mat_ignorez.Shutdown();
-        materials_created = false;
-        last_chams_type = -1;
+    IMaterial* material;
+    bool created;
+    bool ignore_z;
+    
+    ChamsMaterial() : material(nullptr), created(false), ignore_z(false) {}
+    
+    void Shutdown() {
+        if (material) {
+            material->DecrementReferenceCount();
+            material = nullptr;
+        }
+        created = false;
     }
 
-    bool CreateMaterials()
-    {
+    bool Create(bool ignorez) {
         if (!g_IMaterialSystem)
             return false;
 
-        // Check if materials are already created and valid
-        if (materials_created && last_chams_type == *chams_type)
-        {
-            if (mat_regular.IsValid() && mat_ignorez.IsValid())
-            {
-                if (mat_regular.m_pMaterial && mat_ignorez.m_pMaterial)
-                    return true;
-            }
-        }
-
-        // Clean up old materials first
-        Shutdown();
-
-        // Create base material
+        ignore_z = ignorez;
         const char* material_type = (*chams_type == 5) ? "UnlitGeneric" : "VertexLitGeneric";
         
-        // Create regular material
         KeyValues* kv = new KeyValues(material_type);
         if (!kv)
             return false;
@@ -112,15 +87,16 @@ public:
         kv->SetString("$basetexture", "vgui/white");
         kv->SetInt("$model", 1);
         
-        if (*chams_type != 5)
-        {
+        if (ignorez)
+            kv->SetInt("$ignorez", 1);
+            
+        if (*chams_type != 5) {
             kv->SetInt("$nocull", 1);
             kv->SetInt("$halflambert", 1);
         }
 
         // Material type specific settings
-        switch (*chams_type)
-        {
+        switch (*chams_type) {
         case 1: // Flat
             kv->SetInt("$phong", 0);
             kv->SetInt("$basemapalphaphongmask", 0);
@@ -157,8 +133,7 @@ public:
             break;
             
         default: // Normal
-            if (*phong_enable)
-            {
+            if (*phong_enable) {
                 kv->SetInt("$phong", 1);
                 kv->SetFloat("$phongexponent", 15);
                 kv->SetFloat("$phongboost", *phong_boost);
@@ -167,163 +142,69 @@ public:
             break;
         }
 
-        // Create regular material
-        IMaterial* reg = g_IMaterialSystem->CreateMaterial("__cathook_chams", kv);
+        char material_name[128];
+        snprintf(material_name, sizeof(material_name), "__cathook_chams_%s_%d", ignorez ? "ignorez" : "regular", *chams_type);
+        
+        material = g_IMaterialSystem->CreateMaterial(material_name, kv);
         kv->deleteThis();
-        if (!reg || reg->IsErrorMaterial())
-            return false;
-
-        // Create ignorez material
-        KeyValues* kv_ignorez = new KeyValues(material_type);
-        if (!kv_ignorez)
-        {
-            reg->DecrementReferenceCount();
-            return false;
-        }
-
-        // Copy base material setup
-        kv_ignorez->SetString("$basetexture", "vgui/white");
-        kv_ignorez->SetInt("$model", 1);
-        kv_ignorez->SetInt("$ignorez", 1);
         
-        if (*chams_type != 5)
-        {
-            kv_ignorez->SetInt("$nocull", 1);
-            kv_ignorez->SetInt("$halflambert", 1);
-        }
-
-        // Copy material type specific settings
-        switch (*chams_type)
-        {
-        case 1: // Flat
-            kv_ignorez->SetInt("$phong", 0);
-            kv_ignorez->SetInt("$basemapalphaphongmask", 0);
-            kv_ignorez->SetInt("$normalmapalphaenvmapmask", 0);
-            break;
-            
-        case 2: // Shaded
-            kv_ignorez->SetInt("$phong", 1);
-            kv_ignorez->SetFloat("$phongexponent", 15);
-            kv_ignorez->SetFloat("$phongboost", *phong_boost);
-            kv_ignorez->SetString("$envmap", "");
-            kv_ignorez->SetString("$phongfresnelranges", "[.5 .5 1]");
-            break;
-            
-        case 3: // Glossy
-            kv_ignorez->SetInt("$phong", 1);
-            kv_ignorez->SetFloat("$phongexponent", 30);
-            kv_ignorez->SetFloat("$phongboost", *phong_boost);
-            kv_ignorez->SetString("$envmap", "env_cubemap");
-            kv_ignorez->SetFloat("$envmaptint", *envmap_tint);
-            kv_ignorez->SetString("$phongfresnelranges", "[.5 .5 1]");
-            break;
-            
-        case 4: // Glow
-            kv_ignorez->SetInt("$additive", 1);
-            kv_ignorez->SetString("$envmap", "models/effects/cube_white");
-            kv_ignorez->SetInt("$selfillum", 1);
-            kv_ignorez->SetString("$selfillumtint", "[1 1 1]");
-            kv_ignorez->SetFloat("$selfillumboost", 2.0f);
-            break;
-            
-        case 5: // Wireframe
-            kv_ignorez->SetInt("$wireframe", 1);
-            break;
-            
-        default: // Normal
-            if (*phong_enable)
-            {
-                kv_ignorez->SetInt("$phong", 1);
-                kv_ignorez->SetFloat("$phongexponent", 15);
-                kv_ignorez->SetFloat("$phongboost", *phong_boost);
-                kv_ignorez->SetString("$phongfresnelranges", "[.5 .5 1]");
-            }
-            break;
-        }
-
-        IMaterial* ignorez = g_IMaterialSystem->CreateMaterial("__cathook_chams_ignorez", kv_ignorez);
-        kv_ignorez->deleteThis();
-        
-        if (!ignorez || ignorez->IsErrorMaterial())
-        {
-            reg->DecrementReferenceCount();
+        if (!material || material->IsErrorMaterial()) {
+            material = nullptr;
             return false;
         }
 
-        mat_regular.Init(reg);
-        mat_ignorez.Init(ignorez);
-        materials_created = true;
-        last_chams_type = *chams_type;
+        created = true;
         return true;
     }
 };
 
-class ChamColors
-{
-public:
-    rgba_t rgba;
-    ChamColors(rgba_t col = colors::empty)
-    {
-        rgba = col;
+namespace hooked_methods {
+
+static ChamsMaterial mat_regular;
+static ChamsMaterial mat_ignorez;
+static int last_chams_type = -1;
+
+static void CreateMaterials() {
+    if (!g_IMaterialSystem)
+        return;
+        
+    if (last_chams_type == *chams_type && mat_regular.created && mat_ignorez.created)
+        return;
+        
+    // Safely clean up existing materials first
+    mat_regular.Shutdown();
+    mat_ignorez.Shutdown();
+    
+    // Only create new materials if chams is enabled
+    if (!enable)
+        return;
+        
+    bool success = mat_regular.Create(false) && mat_ignorez.Create(true);
+    if (!success) {
+        mat_regular.Shutdown();
+        mat_ignorez.Shutdown();
+        return;
     }
-};
-
-namespace hooked_methods
-{
-static bool init_mat = false;
-static Materials mats;
-
-template <typename T> void rvarCallback(settings::VariableBase<T> &, T)
-{
-    init_mat = false;
+    
+    last_chams_type = *chams_type;
 }
 
-static InitRoutine init_dme(
-    []()
-    {
-        EC::Register(
-            EC::LevelShutdown,
-            []()
-            {
-                mats.Shutdown();
-                init_mat = false;
-            },
-            "dme_lvl_shutdown");
-
-        EC::Register(
-            EC::Shutdown,
-            []()
-            {
-                mats.Shutdown();
-                init_mat = false;
-            },
-            "dme_shutdown");
-
-        phong_enable.installChangeCallback(rvarCallback<bool>);
-        phong_boost.installChangeCallback(rvarCallback<int>);
-        chams_type.installChangeCallback(rvarCallback<int>);
-        envmap_tint.installChangeCallback(rvarCallback<float>);
-        material_force_rimlight.installChangeCallback(rvarCallback<float>);
-    });
-
-bool ShouldRenderChams(IClientEntity *entity)
-{
-    if (!entity || !enable || CE_BAD(LOCAL_E))
+static bool ShouldRenderChams(IClientEntity* entity) {
+    if (!entity || !enable)
         return false;
         
     int idx = entity->entindex();
     if (idx < 0)
         return false;
         
-    CachedEntity *ent = ENTITY(idx);
+    CachedEntity* ent = ENTITY(idx);
     if (!ent || CE_BAD(ent))
         return false;
         
     if (ent && LOCAL_E && ent->m_IDX == LOCAL_E->m_IDX)
         return *chamsself;
 
-    switch (ent->m_Type())
-    {
+    switch (ent->m_Type()) {
     case ENTITY_BUILDING:
         if (!buildings)
             return false;
@@ -346,271 +227,204 @@ bool ShouldRenderChams(IClientEntity *entity)
     return false;
 }
 
-// Purpose => Get ChamColors struct from internal entity
-static ChamColors GetChamColors(IClientEntity *entity, bool ignorez)
-{
+static rgba_t GetEntityColor(IClientEntity* entity, bool ignorez) {
     if (!entity)
-        return ChamColors(colors::white);
+        return colors::white;
         
-    CachedEntity *ent = ENTITY(entity->entindex());
-    if (CE_BAD(ent))
-        return ChamColors(colors::white);
+    try {
+        CachedEntity* ent = ENTITY(entity->entindex());
+        if (CE_BAD(ent))
+            return colors::white;
 
-    int team = ent->m_iTeam();
-    if (team != TEAM_RED && team != TEAM_BLU)
-        return ChamColors(colors::white);
+        int team = ent->m_iTeam();
+        if (team != TEAM_RED && team != TEAM_BLU)
+            return colors::white;
 
-    // For weapons, get team from the owner
-    const char* model_name = g_IModelInfo->GetModelName(ent->InternalEntity()->GetModel());
-    if (model_name && (strstr(model_name, "weapons/w_") || strstr(model_name, "weapons/c_")))
-    {
-        int owner_idx = HandleToIDX(NET_INT(ent, netvar.hOwner));
-        if (owner_idx > 0 && owner_idx <= g_IEngine->GetMaxClients())
-        {
-            CachedEntity *owner_ent = ENTITY(owner_idx);
-            if (!CE_BAD(owner_ent))
-                team = owner_ent->m_iTeam();
+        // For weapons, get team from the owner
+        const char* model_name = g_IModelInfo->GetModelName(ent->InternalEntity()->GetModel());
+        if (model_name && (strstr(model_name, "weapons/w_") || strstr(model_name, "weapons/c_"))) {
+            int owner_idx = HandleToIDX(NET_INT(ent, netvar.hOwner));
+            if (owner_idx > 0 && owner_idx <= g_IEngine->GetMaxClients()) {
+                CachedEntity* owner = ENTITY(owner_idx);
+                if (!CE_BAD(owner))
+                    team = owner->m_iTeam();
+            }
         }
+
+        if (team == TEAM_BLU)
+            return ignorez ? *novis_team_blu : *visible_team_blu;
+        else if (team == TEAM_RED)
+            return ignorez ? *novis_team_red : *visible_team_red;
+    } catch (...) {
+        return colors::white;
     }
 
-    // Return appropriate color based on team and visibility
-    if (team == TEAM_BLU)
-        return ChamColors(ignorez ? *novis_team_blu : *visible_team_blu);
-    else if (team == TEAM_RED)
-        return ChamColors(ignorez ? *novis_team_red : *visible_team_red);
-
-    return ChamColors(colors::white);
+    return colors::white;
 }
 
-void ApplyChams(ChamColors colors, bool ignorez, IClientEntity *entity, IVModelRender *this_, const DrawModelState_t &state, const ModelRenderInfo_t &info, matrix3x4_t *bone)
-{
-    static bool in_chams = false;
-    if (in_chams || !g_IVRenderView || !g_IVModelRender || !g_IMaterialSystem || !entity || !this_)
-    {
-        if (g_IVModelRender)
-            g_IVModelRender->ForcedMaterialOverride(nullptr);
-        if (!in_chams)
-            original::DrawModelExecute(this_, state, info, bone);
+static void ApplyChams(IClientEntity* entity, bool ignorez, const DrawModelState_t& state, const ModelRenderInfo_t& info, matrix3x4_t* bone) {
+    if (!g_IVRenderView || !g_IVModelRender || !g_IMaterialSystem || !entity)
         return;
-    }
+        
+    IMaterial* material = ignorez ? mat_ignorez.material : mat_regular.material;
+    if (!material || material->IsErrorMaterial())
+        return;
+
+    // Save the original color modulation and blend
+    float original_color[3] = { 0.0f, 0.0f, 0.0f };
+    float original_blend = 0.0f;
     
-    in_chams = true;
-
-    // Create or update materials if needed
-    if (!mats.CreateMaterials())
-    {
-        if (g_IVModelRender)
-            g_IVModelRender->ForcedMaterialOverride(nullptr);
-        original::DrawModelExecute(this_, state, info, bone);
-        in_chams = false;
+    try {
+        g_IVRenderView->GetColorModulation(original_color);
+        original_blend = g_IVRenderView->GetBlend();
+    } catch (...) {
         return;
     }
 
-    // Get material pointers
-    IMaterial* reg = mats.mat_regular.m_pMaterial;
-    IMaterial* ignorez_mat = mats.mat_ignorez.m_pMaterial;
-
-    // Safety check for valid materials
-    if (!reg || !ignorez_mat)
-    {
-        if (g_IVModelRender)
-            g_IVModelRender->ForcedMaterialOverride(nullptr);
-        original::DrawModelExecute(this_, state, info, bone);
-        in_chams = false;
-        return;
+    try {
+        rgba_t color = GetEntityColor(entity, ignorez);
+        float alpha = entity->GetClientClass()->m_ClassID == RCC_PLAYER ? *player_alpha : *building_alpha;
+        
+        // Clamp alpha to valid range
+        alpha = std::clamp(alpha, 0.0f, 1.0f);
+        
+        // Set color with safety checks
+        float new_color[3] = { 
+            std::clamp(color.r / 255.0f, 0.0f, 1.0f),
+            std::clamp(color.g / 255.0f, 0.0f, 1.0f),
+            std::clamp(color.b / 255.0f, 0.0f, 1.0f)
+        };
+        
+        g_IVRenderView->SetColorModulation(new_color);
+        g_IVRenderView->SetBlend(alpha);
+        
+        // Force material override
+        g_IVModelRender->ForcedMaterialOverride(material);
+        
+        // Draw with original material
+        original::DrawModelExecute(g_IVModelRender, state, info, bone);
+        
+        // Immediately restore material to prevent state leaks
+        g_IVModelRender->ForcedMaterialOverride(nullptr);
+        g_IVRenderView->SetColorModulation(original_color);
+        g_IVRenderView->SetBlend(original_blend);
+    } catch (...) {
+        // Restore original state in case of any exception
+        g_IVModelRender->ForcedMaterialOverride(nullptr);
+        g_IVRenderView->SetColorModulation(original_color);
+        g_IVRenderView->SetBlend(original_blend);
     }
-
-    // Draw original model if enabled
-    if (render_original && !ignorez)
-    {
-        if (g_IVModelRender)
-            g_IVModelRender->ForcedMaterialOverride(nullptr);
-        original::DrawModelExecute(this_, state, info, bone);
-    }
-
-    // Apply colors
-    float r = colors.rgba.r / 255.0f;
-    float g = colors.rgba.g / 255.0f;
-    float b = colors.rgba.b / 255.0f;
-    float a = colors.rgba.a;
-
-    reg->ColorModulate(r, g, b);
-    reg->AlphaModulate(a);
-    ignorez_mat->ColorModulate(r, g, b);
-    ignorez_mat->AlphaModulate(a);
-    
-    // Draw through-wall chams first
-    if (ignorez && !legit && novis)
-    {
-        g_IVModelRender->ForcedMaterialOverride(ignorez_mat);
-        original::DrawModelExecute(this_, state, info, bone);
-    }
-
-    // Then draw visible chams
-    g_IVModelRender->ForcedMaterialOverride(reg);
-    original::DrawModelExecute(this_, state, info, bone);
-
-    g_IVModelRender->ForcedMaterialOverride(nullptr);
-    in_chams = false;
 }
 
-DEFINE_HOOKED_METHOD(DrawModelExecute, void, IVModelRender *this_, const DrawModelState_t &state, const ModelRenderInfo_t &info, matrix3x4_t *bone)
-{
-    // Early exit conditions with proper cleanup
+DEFINE_HOOKED_METHOD(DrawModelExecute, void, IVModelRender* this_, const DrawModelState_t& state, const ModelRenderInfo_t& info, matrix3x4_t* bone) {
     if (!this_ || !g_IVModelRender || !g_IMaterialSystem || !g_IVRenderView || !isHackActive() || 
         effect_glow::g_EffectGlow.drawing || (*clean_screenshots && g_IEngine->IsTakingScreenshot()) || 
-        disable_visuals || CE_BAD(LOCAL_E) || !enable)
-    {
-        if (this_ && g_IVModelRender)
-            g_IVModelRender->ForcedMaterialOverride(nullptr);
+        disable_visuals || CE_BAD(LOCAL_E) || !enable) {
         return original::DrawModelExecute(this_, state, info, bone);
     }
 
-    // Check if we have a valid entity and model
-    if (!info.pModel)
-    {
-        g_IVModelRender->ForcedMaterialOverride(nullptr);
+    if (!info.pModel) {
         return original::DrawModelExecute(this_, state, info, bone);
     }
 
-    IClientEntity *entity = g_IEntityList->GetClientEntity(info.entity_index);
-    if (!entity)
-    {
-        g_IVModelRender->ForcedMaterialOverride(nullptr);
+    IClientEntity* entity = g_IEntityList->GetClientEntity(info.entity_index);
+    if (!entity) {
         return original::DrawModelExecute(this_, state, info, bone);
     }
 
-    // Get model name
-    const char *name = g_IModelInfo->GetModelName(info.pModel);
-    if (!name)
+    const char* name = g_IModelInfo->GetModelName(info.pModel);
+    if (!name) {
         return original::DrawModelExecute(this_, state, info, bone);
+    }
 
-    try
-    {
+    try {
+        CreateMaterials();
+
         // Handle arms
-        if (strstr(name, "arms") || strstr(name, "c_engineer_gunslinger"))
-        {
+        if (strstr(name, "arms") || strstr(name, "c_engineer_gunslinger")) {
             if (no_arms)
                 return;
             return original::DrawModelExecute(this_, state, info, bone);
         }
 
         // Handle weapons
-        if (strstr(name, "weapons/w_") || strstr(name, "weapons/c_"))
-        {
-            // Always show original model if chams are disabled
+        if (strstr(name, "weapons/w_") || strstr(name, "weapons/c_")) {
             if (!enable)
                 return original::DrawModelExecute(this_, state, info, bone);
 
-            CachedEntity *ent = ENTITY(entity->entindex());
+            CachedEntity* ent = ENTITY(entity->entindex());
             if (CE_BAD(ent))
                 return original::DrawModelExecute(this_, state, info, bone);
 
-            // Get weapon owner
             int owner_idx = HandleToIDX(NET_INT(ent, netvar.hOwner));
             if (owner_idx <= 0 || owner_idx > g_IEngine->GetMaxClients())
                 return original::DrawModelExecute(this_, state, info, bone);
 
-            CachedEntity *owner = ENTITY(owner_idx);
+            CachedEntity* owner = ENTITY(owner_idx);
             if (CE_BAD(owner))
                 return original::DrawModelExecute(this_, state, info, bone);
 
             bool is_enemy = owner->m_bEnemy();
             bool should_render = (is_enemy && *weapons_enemy) || (!is_enemy && *weapons_teammate);
 
-            if (should_render)
-            {
-                // If legit mode is off, render through walls first
-                if (!legit && novis)
-                {
-                    ChamColors colors = GetChamColors(owner->InternalEntity(), true);
-                    colors.rgba.a = *player_alpha;
-                    ApplyChams(colors, true, entity, this_, state, info, bone);
-                }
-
-                // Then render normal chams
-                ChamColors colors = GetChamColors(owner->InternalEntity(), false);
-                colors.rgba.a = *player_alpha;
-                ApplyChams(colors, false, entity, this_, state, info, bone);
+            if (should_render) {
+                if (!legit && novis && mat_ignorez.material && !mat_ignorez.material->IsErrorMaterial())
+                    ApplyChams(entity, true, state, info, bone);
+                if (mat_regular.material && !mat_regular.material->IsErrorMaterial())
+                    ApplyChams(entity, false, state, info, bone);
                 return;
             }
             
-            // Show original model if no chams should be applied
             if (*weapons_original)
                 return original::DrawModelExecute(this_, state, info, bone);
             return;
         }
 
-        // Handle player chams
-        if (entity->entindex() > 0 && entity->entindex() <= g_IEngine->GetMaxClients())
-        {
-            if (!players)
-                return original::DrawModelExecute(this_, state, info, bone);
+        if (!ShouldRenderChams(entity))
+            return original::DrawModelExecute(this_, state, info, bone);
 
-            CachedEntity *ent = ENTITY(entity->entindex());
-            if (!ent || !ent->m_bAlivePlayer())
-                return original::DrawModelExecute(this_, state, info, bone);
+        if (render_original && !legit)
+            original::DrawModelExecute(this_, state, info, bone);
 
-            // Handle local player
-            if (ent->m_IDX == g_IEngine->GetLocalPlayer())
-            {
-                if (!chamsself)
-                    return original::DrawModelExecute(this_, state, info, bone);
-            }
-            // Handle other players
-            else
-            {
-                if (!teammates && !ent->m_bEnemy())
-                    return original::DrawModelExecute(this_, state, info, bone);
-            }
-
-            // If legit mode is off, render through walls first
-            if (!legit && novis)
-            {
-                ChamColors colors = GetChamColors(entity, true);
-                colors.rgba.a = *player_alpha;
-                ApplyChams(colors, true, entity, this_, state, info, bone);
-            }
-
-            // Then render normal chams
-            ChamColors colors = GetChamColors(entity, false);
-            colors.rgba.a = *player_alpha;
-            ApplyChams(colors, false, entity, this_, state, info, bone);
-            return;
-        }
-
-        // Handle buildings
-        CachedEntity *ent = ENTITY(entity->entindex());
-        if (buildings && ent && ent->m_Type() == ENTITY_BUILDING)
-        {
-            // Skip teammate buildings if not enabled
-            if (!ent->m_bEnemy() && !teammates)
-                return original::DrawModelExecute(this_, state, info, bone);
-
-            if (ent->m_iHealth() == 0 || !ent->m_iHealth())
-                return original::DrawModelExecute(this_, state, info, bone);
-
-            // If legit mode is off, render through walls first
-            if (!legit && novis)
-            {
-                ChamColors colors = GetChamColors(entity, true);
-                colors.rgba.a = *building_alpha;
-                ApplyChams(colors, true, entity, this_, state, info, bone);
-            }
-
-            // Then render normal chams
-            ChamColors colors = GetChamColors(entity, false);
-            colors.rgba.a = *building_alpha;
-            ApplyChams(colors, false, entity, this_, state, info, bone);
-            return;
-        }
-    }
-    catch (...)
-    {
-        // Reset material override in case of exception
+        if (!legit && novis && mat_ignorez.material && !mat_ignorez.material->IsErrorMaterial())
+            ApplyChams(entity, true, state, info, bone);
+        if (mat_regular.material && !mat_regular.material->IsErrorMaterial())
+            ApplyChams(entity, false, state, info, bone);
+    } catch (...) {
+        // Restore default material state and return
         g_IVModelRender->ForcedMaterialOverride(nullptr);
+        return original::DrawModelExecute(this_, state, info, bone);
     }
-
-    return original::DrawModelExecute(this_, state, info, bone);
 }
+
+static InitRoutine init([]() {
+    EC::Register(EC::LevelShutdown, []() {
+        mat_regular.Shutdown();
+        mat_ignorez.Shutdown();
+        last_chams_type = -1;
+    }, "dme_lvl_shutdown");
+
+    EC::Register(EC::Shutdown, []() {
+        mat_regular.Shutdown();
+        mat_ignorez.Shutdown();
+        last_chams_type = -1;
+    }, "dme_shutdown");
+
+    phong_enable.installChangeCallback([](settings::VariableBase<bool>&, bool) {
+        last_chams_type = -1;
+    });
+    phong_boost.installChangeCallback([](settings::VariableBase<int>&, int) {
+        last_chams_type = -1;
+    });
+    chams_type.installChangeCallback([](settings::VariableBase<int>&, int) {
+        last_chams_type = -1;
+    });
+    envmap_tint.installChangeCallback([](settings::VariableBase<float>&, float) {
+        last_chams_type = -1;
+    });
+    material_force_rimlight.installChangeCallback([](settings::VariableBase<float>&, float) {
+        last_chams_type = -1;
+    });
+});
+
 } // namespace hooked_methods
