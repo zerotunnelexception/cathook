@@ -1184,7 +1184,14 @@ static void cm()
     if (CE_BAD(LOCAL_E) || !LOCAL_E->m_bAlivePlayer() || CE_BAD(LOCAL_W))
         return;
     if (state::state == WB_DISABLED)
+    {
+        // Auto-enable recording mode when key is pressed
+        if (recording_key.isKeyDown())
+        {
+            state::state = WB_RECORDING;
+        }
         return;
+    }
     switch (state::state)
     {
     case WB_RECORDING:
@@ -1193,6 +1200,11 @@ static void cm()
         if (recording_key.isKeyDown() and ShouldSpawnNode())
         {
             RecordNode();
+        }
+        // Auto-disable recording mode when key is released
+        if (!recording_key.isKeyDown())
+        {
+            state::state = WB_DISABLED;
         }
     }
     break;

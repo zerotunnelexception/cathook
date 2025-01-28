@@ -3,6 +3,7 @@
     <TabContainer width="fill" height="fill">
         <Include path="nullifiedcat/movement/general.xml"/>
         <Include path="nullifiedcat/movement/navbot.xml"/>
+        <Include path="nullifiedcat/movement/walkbot.xml"/>
         <Include path="nullifiedcat/movement/followbot.xml"/>
     </TabContainer>
 </Tab>
