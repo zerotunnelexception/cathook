@@ -31,18 +31,21 @@
     </Box>
     <Box name="NavBot 2" width="content" height="content" padding="12 6 6 6" x="170">
         <List width="180">
-          <AutoVariable width="fill" target="navbot.autojump.enabled" label="Enable autojump"/>
+            <AutoVariable width="fill" target="navbot.autojump.enabled" label="Enable autojump"/>
             <AutoVariable width="fill" target="navbot.autojump.trigger-distance" label="Jump distance"/>
             <AutoVariable width="fill" target="navbot.snipe-sentries" label="Try to target sentries"/>
             <AutoVariable width="fill" target="navbot.snipe-sentries.shortrange" label="Scout/Pyro sentry mode" tooltip="Try to target sentries as scout/pyro aswell. Usually not recommended."/>
             <AutoVariable width="fill" target="nav.nojumppaths" label="Prefer no-jump paths" tooltip="Try to find paths that don't require jumping when possible"/>
             <AutoVariable width="fill" target="nav.safepathing" label="Safe pathing" tooltip="Try to path through safer areas away from edges"/>
             <AutoVariable width="fill" target="navbot.stay-near" label="Stalk enemies" tooltip="Try to outrange as sniper and close distance as scout/heavy"/>
-               <AutoVariable width="fill" target="navbot.yolo-mode" label="YOLO mode" tooltip="Don't escape from danger at all"/>
+            <AutoVariable width="fill" target="navbot.yolo-mode" label="YOLO mode" tooltip="Don't escape from danger at all"/>
             <AutoVariable width="fill" target="navbot.yolo-mode-rage" label="YOLO mode for RAGE" tooltip="Don't escape from danger until RAGE player is dead"/>
+            <AutoVariable width="fill" target="navbot.search-spells" label="Search spells" tooltip="Became a witch! and automatically collect Halloween spells when you don't have one"/>
+            <AutoVariable width="fill" target="navbot.search-powerups" label="Search powerups" tooltip="Automatically collect Mannpower powerups when you don't have one"/>
+            <AutoVariable width="fill" target="navbot.search-gargoyles" label="Search gargoyles" tooltip="Automatically collect GARGOYLE during Halloween"/>
         </List>
     </Box>
-    <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="170" y="152">
+    <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="170" y="192">
         <List width="180">
             <AutoVariable width="fill" target="chargeaim.enable" label="Enabled" tooltip="Makes your demoman charge automatically go towards the enemy. Only active when key is held, and does not trigger the charge itself."/>
             <AutoVariable width="fill" target="chargeaim.key" label="Key to hold"/>

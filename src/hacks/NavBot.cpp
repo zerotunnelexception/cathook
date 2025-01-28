@@ -13,12 +13,17 @@
 #include "navparser.hpp"
 #include "MiscAimbot.hpp"
 #include "Misc.hpp"
+#include "conditions.hpp"
+#include "itemtypes.hpp"
 
 namespace hacks::tf2::NavBot
 {
 static settings::Boolean enabled("navbot.enabled", "false");
 static settings::Boolean search_health("navbot.search-health", "true");
 static settings::Boolean search_ammo("navbot.search-ammo", "true");
+static settings::Boolean search_spells("navbot.search-spells", "true");
+static settings::Boolean search_powerups("navbot.search-powerups", "true");
+static settings::Boolean search_gargoyles("navbot.search-gargoyles", "true");
 static settings::Boolean stay_near("navbot.stay-near", "true");
 static settings::Boolean capture_objectives("navbot.capture-objectives", "true");
 static settings::Boolean snipe_sentries("navbot.snipe-sentries", "true");
@@ -67,6 +72,9 @@ bot_class_config selected_config                      = CONFIG_MID_RANGE;
 
 static Timer health_cooldown{};
 static Timer ammo_cooldown{};
+static Timer spell_cooldown{};
+static Timer powerup_cooldown{};
+static Timer gargoyle_cooldown{};
 // Should we search health at all?
 bool shouldSearchHealth(bool low_priority = false)
 {
@@ -112,6 +120,38 @@ bool shouldSearchAmmo()
         }
     }
     return false;
+}
+
+// Should we search spells at all?
+bool shouldSearchSpells()
+{
+    if (!*enabled)
+        return false;
+    if (navparser::NavEngine::current_priority > Priority_list::spells)
+        return false;
+    if (HasCondition<TFCond_HalloweenKart>(LOCAL_E) || HasCondition<TFCond_HalloweenKartDash>(LOCAL_E))
+        return false;
+    return true;
+}
+
+// Should we search powerups at all?
+bool shouldSearchPowerups()
+{
+    if (!*enabled)
+        return false;
+    if (navparser::NavEngine::current_priority > Priority_list::prio_powerups)
+        return false;
+    return true;
+}
+
+// Should we search gargoyles at all?
+bool shouldSearchGargoyles()
+{
+    if (!*enabled)
+        return false;
+    if (navparser::NavEngine::current_priority > Priority_list::gargoyles)
+        return false;
+    return true;
 }
 
 // Get Valid Dispensers (Used for health/ammo)
@@ -269,6 +309,141 @@ bool getAmmo(bool force = false)
     }
     else if (navparser::NavEngine::current_priority == ammo && !was_force)
         navparser::NavEngine::cancelPath();
+    return false;
+}
+
+// Find spells if needed
+bool getSpells()
+{
+    if (!shouldSearchSpells())
+        return false;
+    // Already have a spell
+    if (HasCondition<TFCond_HalloweenKart>(LOCAL_E) || HasCondition<TFCond_HalloweenKartDash>(LOCAL_E))
+        return navparser::NavEngine::current_priority == Priority_list::spells;
+
+    // No spells - search for one
+    if (!navparser::NavEngine::isPathing())
+    {
+        // Don't try to search for spells if we're doing something else
+        if (navparser::NavEngine::current_priority == Priority_list::spells)
+        {
+            // Get all spell entities
+            std::vector<k_EItemType> spell_types = { HALLOWEEN_GHOST };
+            auto spell_entities = getEntities(spell_types);
+            // Sort by distance, discard empty ones
+            std::vector<CachedEntity *> valid_spells;
+            for (auto spell : spell_entities)
+            {
+                if (CE_VALID(spell))
+                    valid_spells.push_back(spell);
+            }
+
+            // Sort by distance, closest to highest
+            std::sort(valid_spells.begin(), valid_spells.end(), [](CachedEntity *a, CachedEntity *b) { return a->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) < b->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin); });
+
+            for (auto spell : valid_spells)
+            {
+                // Try to nav to spell
+                if (navparser::NavEngine::navTo(spell->m_vecOrigin(), Priority_list::spells, true, spell->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) > 200.0f * 200.0f))
+                    return true;
+            }
+            return false;
+        }
+        // We cannot nav to spell atm
+        return false;
+    }
+    // In the process of navigating to a spell
+    else if (navparser::NavEngine::current_priority == Priority_list::spells)
+        return true;
+    return false;
+}
+
+// Find powerups if needed
+bool getPowerups()
+{
+    if (!shouldSearchPowerups())
+        return false;
+    // Already have a powerup
+    if (HasCondition<TFCond_RuneStrength>(LOCAL_E) || HasCondition<TFCond_RuneHaste>(LOCAL_E) || HasCondition<TFCond_RuneRegen>(LOCAL_E) || HasCondition<TFCond_RuneResist>(LOCAL_E) || HasCondition<TFCond_RuneVampire>(LOCAL_E) || HasCondition<TFCond_RuneWarlock>(LOCAL_E) || HasCondition<TFCond_RunePrecision>(LOCAL_E) || HasCondition<TFCond_RuneAgility>(LOCAL_E))
+        return navparser::NavEngine::current_priority == Priority_list::prio_powerups;
+
+    // No powerups - search for one
+    if (!navparser::NavEngine::isPathing())
+    {
+        // Don't try to search for powerups if we're doing something else
+        if (navparser::NavEngine::current_priority == Priority_list::prio_powerups)
+        {
+            // Get all powerup entities
+            std::vector<k_EItemType> powerup_types = { ITEM_POWERUP_KING };
+            auto powerup_entities = getEntities(powerup_types);
+            // Sort by distance, discard empty ones
+            std::vector<CachedEntity *> valid_powerups;
+            for (auto powerup : powerup_entities)
+            {
+                if (CE_VALID(powerup))
+                    valid_powerups.push_back(powerup);
+            }
+
+            // Sort by distance, closest to highest
+            std::sort(valid_powerups.begin(), valid_powerups.end(), [](CachedEntity *a, CachedEntity *b) { return a->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) < b->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin); });
+
+            for (auto powerup : valid_powerups)
+            {
+                // Try to nav to powerup
+                if (navparser::NavEngine::navTo(powerup->m_vecOrigin(), Priority_list::prio_powerups, true, powerup->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) > 200.0f * 200.0f))
+                    return true;
+            }
+            return false;
+        }
+        // We cannot nav to powerup atm
+        return false;
+    }
+    // In the process of navigating to a powerup
+    else if (navparser::NavEngine::current_priority == Priority_list::prio_powerups)
+        return true;
+    return false;
+}
+
+// Find gargoyles if needed
+bool getGargoyles()
+{
+    if (!shouldSearchGargoyles())
+        return false;
+
+    // No gargoyles - search for one
+    if (!navparser::NavEngine::isPathing())
+    {
+        // Don't try to search for gargoyles if we're doing something else
+        if (navparser::NavEngine::current_priority == Priority_list::gargoyles)
+        {
+            // Get all gargoyle entities
+            std::vector<k_EItemType> gargoyle_types = { HALLOWEEN_GHOST };
+            auto gargoyle_entities = getEntities(gargoyle_types);
+            // Sort by distance, discard empty ones
+            std::vector<CachedEntity *> valid_gargoyles;
+            for (auto gargoyle : gargoyle_entities)
+            {
+                if (CE_VALID(gargoyle))
+                    valid_gargoyles.push_back(gargoyle);
+            }
+
+            // Sort by distance, closest to highest
+            std::sort(valid_gargoyles.begin(), valid_gargoyles.end(), [](CachedEntity *a, CachedEntity *b) { return a->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) < b->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin); });
+
+            for (auto gargoyle : valid_gargoyles)
+            {
+                // Try to nav to gargoyle
+                if (navparser::NavEngine::navTo(gargoyle->m_vecOrigin(), Priority_list::gargoyles, true, gargoyle->m_vecOrigin().DistToSqr(g_pLocalPlayer->v_Origin) > 200.0f * 200.0f))
+                    return true;
+            }
+            return false;
+        }
+        // We cannot nav to gargoyle atm
+        return false;
+    }
+    // In the process of navigating to a gargoyle
+    else if (navparser::NavEngine::current_priority == Priority_list::gargoyles)
+        return true;
     return false;
 }
 
@@ -1861,6 +2036,15 @@ static void CreateMove()
         return;
     // If we aren't getting health, get ammo
     if (getAmmo())
+        return;
+    // Try to get spells
+    if (getSpells())
+        return;
+    // Try to get powerups
+    if (getPowerups())
+        return;
+    // Try to get gargoyles
+    if (getGargoyles())
         return;
     if (runEngineerLogic())
         return;

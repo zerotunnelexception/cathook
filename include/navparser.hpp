@@ -12,6 +12,9 @@ enum Priority_list
 {
     patrol = 5,
     lowprio_health,
+    spells,
+    prio_powerups,
+    gargoyles,
     staynear,
     run_reload,
     snipe_sentry,
@@ -20,10 +23,10 @@ enum Priority_list
     prio_melee,
     engineer,
     health,
+    escape_spawn,
     danger,
     followbot,
     rage_target,
-    escape_spawn,
 };
 
 namespace navparser
