@@ -766,21 +766,6 @@ void update()
     if (CE_BAD(LOCAL_E))
         return;
 
-    if (LOCAL_E->m_bAlivePlayer())
-    {
-        unstuck.update();
-        unstucks = 0;
-    }
-    if (unstuck.test_and_set(10000))
-    {
-        unstucks++;
-        // Send menuclosed to tell the server that we want to respawn
-        hack::command_stack().push("menuclosed");
-        // If that didnt work, force pick a team and class
-        if (unstucks > 3)
-            hack::command_stack().push("autoteam; join_class sniper");
-    }
-
     if (micspam)
     {
         if (micspam_on && micspam_on_timer.test_and_set(*micspam_on * 1000))

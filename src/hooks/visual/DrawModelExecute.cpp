@@ -19,25 +19,57 @@
 #include "common.hpp"
 #include "HookedMethods.hpp"
 #include "MiscTemporary.hpp"
-#include "Backtrack.hpp"
+#include "hacks/Backtrack.hpp"
 #include "EffectGlow.hpp"
 #include "Aimbot.hpp"
+#include "hacks/AntiAim.hpp"
+#include <algorithm>
+
+namespace hooked_methods {
 
 /* Core settings */
 static settings::Boolean enable{ "chams.enable", "false" };
-static settings::Boolean render_original{ "chams.original", "false" };
 static settings::Boolean legit{ "chams.legit", "false" };
-static settings::Boolean novis{ "chams.novis", "true" };
-static settings::Boolean no_arms{ "remove.arms", "false" };
 
-/* Target settings */
+/* Player settings */
 static settings::Boolean players{ "chams.show.players", "true" };
 static settings::Boolean teammates{ "chams.show.teammates", "false" };
-static settings::Boolean buildings{ "chams.show.buildings", "true" };
 static settings::Boolean chamsself{ "chams.self", "true" };
-static settings::Boolean weapons_enemy{ "chams.weapons.enemy", "false" };
-static settings::Boolean weapons_teammate{ "chams.weapons.teammate", "false" };
+static settings::Float player_alpha{ "chams.player.alpha", "1" };
+
+/* Building settings */
+static settings::Boolean buildings{ "chams.show.buildings", "true" };
+static settings::Boolean buildings_enemy{ "chams.building.enemy", "true" };
+static settings::Boolean buildings_team{ "chams.building.team", "false" };
+static settings::Float building_alpha{ "chams.building.alpha", "1" };
+
+/* Projectile settings */
+static settings::Boolean projectiles{ "chams.show.projectiles", "true" };
+static settings::Boolean projectiles_enemy{ "chams.projectile.enemy", "true" };
+static settings::Boolean projectiles_team{ "chams.projectile.team", "false" };
+
+/* Viewmodel settings */
+static settings::Boolean viewmodel_hands{ "chams.viewmodel.hands", "false" };
+static settings::Boolean viewmodel_weapon{ "chams.viewmodel.weapon", "false" };
 static settings::Boolean weapons_original{ "chams.weapons.original", "true" };
+static settings::Boolean no_arms{ "remove.arms", "false" };
+
+/* World settings */
+static settings::Boolean world_objective{ "chams.world.objective", "false" };
+static settings::Boolean world_npcs{ "chams.world.npcs", "false" };
+static settings::Boolean world_pickups{ "chams.world.pickups", "false" };
+static settings::Boolean world_powerups{ "chams.world.powerups", "false" };
+static settings::Boolean world_halloween{ "chams.world.halloween", "false" };
+static settings::Boolean world_bombs{ "chams.world.bombs", "false" };
+
+/* Backtrack settings */
+static settings::Boolean backtrack_enabled{ "chams.backtrack.enabled", "false" };
+static settings::Int backtrack_draw{ "chams.backtrack.draw", "0" };
+static settings::Rgba backtrack_color{ "chams.backtrack.color", "ff00ffff" };
+
+/* Fake angle settings */
+static settings::Boolean fakeangle_enabled{ "chams.fakeangle.enabled", "false" };
+static settings::Rgba fakeangle_color{ "chams.fakeangle.color", "ff00ffff" };
 
 /* Material settings */
 static settings::Int chams_type{ "chams.type", "0" };
@@ -46,15 +78,24 @@ static settings::Int phong_boost{ "chams.phongboost", "2" };
 static settings::Float envmap_tint{ "chams.envmaptint", "0" };
 static settings::Float material_force_rimlight{ "chams.rimlight", "0" };
 
-/* Alpha settings */
-static settings::Float player_alpha{ "chams.player.alpha", "1" };
-static settings::Float building_alpha{ "chams.building.alpha", "1" };
-
 /* Team colors */
-static settings::Rgba visible_team_red{ "chams.red", "ff0000ff" };
-static settings::Rgba visible_team_blu{ "chams.blu", "0000ffff" };
-static settings::Rgba novis_team_red{ "chams.novis.red", "ff8800ff" };
-static settings::Rgba novis_team_blu{ "chams.novis.blu", "bc00ffff" };
+static settings::Rgba player_enemy_visible{ "chams.player.enemy.visible", "ff0000ff" };
+static settings::Rgba player_enemy_occluded{ "chams.player.enemy.occluded", "ff8800ff" };
+static settings::Rgba player_team_visible{ "chams.player.team.visible", "0000ffff" };
+static settings::Rgba player_team_occluded{ "chams.player.team.occluded", "bc00ffff" };
+
+static settings::Rgba building_enemy_visible{ "chams.building.enemy.visible", "ff0000ff" };
+static settings::Rgba building_enemy_occluded{ "chams.building.enemy.occluded", "ff8800ff" };
+static settings::Rgba building_team_visible{ "chams.building.team.visible", "0000ffff" };
+static settings::Rgba building_team_occluded{ "chams.building.team.occluded", "bc00ffff" };
+
+static settings::Rgba projectile_enemy_visible{ "chams.projectile.enemy.visible", "ff0000ff" };
+static settings::Rgba projectile_enemy_occluded{ "chams.projectile.enemy.occluded", "ff8800ff" };
+static settings::Rgba projectile_team_visible{ "chams.projectile.team.visible", "0000ffff" };
+static settings::Rgba projectile_team_occluded{ "chams.projectile.team.occluded", "bc00ffff" };
+
+static settings::Rgba viewmodel_hands_color{ "chams.viewmodel.hands.color", "ffffffff" };
+static settings::Rgba viewmodel_weapon_color{ "chams.viewmodel.weapon.color", "ffffffff" };
 
 class ChamsMaterial {
 public:
@@ -158,8 +199,6 @@ public:
     }
 };
 
-namespace hooked_methods {
-
 static ChamsMaterial mat_regular;
 static ChamsMaterial mat_ignorez;
 static int last_chams_type = -1;
@@ -208,7 +247,9 @@ static bool ShouldRenderChams(IClientEntity* entity) {
     case ENTITY_BUILDING:
         if (!buildings)
             return false;
-        if (!ent->m_bEnemy() && !teammates)
+        if (!buildings_enemy && ent->m_bEnemy())
+            return false;
+        if (!buildings_team && !ent->m_bEnemy())
             return false;
         if (ent->m_iHealth() == 0 || !ent->m_iHealth())
             return false;
@@ -221,9 +262,36 @@ static bool ShouldRenderChams(IClientEntity* entity) {
         if (CE_BYTE(ent, netvar.iLifeState))
             return false;
         return true;
+    case ENTITY_PROJECTILE:
+        if (!projectiles)
+            return false;
+        if (!projectiles_enemy && ent->m_bEnemy())
+            return false;
+        if (!projectiles_team && !ent->m_bEnemy())
+            return false;
+        return true;
     default:
         break;
     }
+
+    // Handle world entities
+    const char* model_name = g_IModelInfo->GetModelName(ent->InternalEntity()->GetModel());
+    if (!model_name)
+        return false;
+
+    if (world_objective && strstr(model_name, "flagpole"))
+        return true;
+    if (world_npcs && (strstr(model_name, "boss") || strstr(model_name, "merasmus") || strstr(model_name, "zombie")))
+        return true;
+    if (world_pickups && (strstr(model_name, "ammo") || strstr(model_name, "medkit")))
+        return true;
+    if (world_powerups && strstr(model_name, "powerup"))
+        return true;
+    if (world_halloween && strstr(model_name, "halloween"))
+        return true;
+    if (world_bombs && strstr(model_name, "bomb"))
+        return true;
+
     return false;
 }
 
@@ -236,28 +304,27 @@ static rgba_t GetEntityColor(IClientEntity* entity, bool ignorez) {
         if (CE_BAD(ent))
             return colors::white;
 
-        int team = ent->m_iTeam();
-        if (team != TEAM_RED && team != TEAM_BLU)
-            return colors::white;
+        bool is_player = ent->m_Type() == ENTITY_PLAYER;
+        bool is_building = ent->m_Type() == ENTITY_BUILDING;
+        bool is_projectile = ent->m_Type() == ENTITY_PROJECTILE;
+        bool is_enemy = ent->m_bEnemy();
 
-        // For weapons, get team from the owner
-        const char* model_name = g_IModelInfo->GetModelName(ent->InternalEntity()->GetModel());
-        if (model_name && (strstr(model_name, "weapons/w_") || strstr(model_name, "weapons/c_"))) {
-            int owner_idx = HandleToIDX(NET_INT(ent, netvar.hOwner));
-            if (owner_idx > 0 && owner_idx <= g_IEngine->GetMaxClients()) {
-                CachedEntity* owner = ENTITY(owner_idx);
-                if (!CE_BAD(owner))
-                    team = owner->m_iTeam();
-            }
+        if (is_player) {
+            return is_enemy ? 
+                (ignorez ? *player_enemy_occluded : *player_enemy_visible) :
+                (ignorez ? *player_team_occluded : *player_team_visible);
         }
-
-        if (team == TEAM_BLU)
-            return ignorez ? *novis_team_blu : *visible_team_blu;
-        else if (team == TEAM_RED)
-            return ignorez ? *novis_team_red : *visible_team_red;
-    } catch (...) {
-        return colors::white;
-    }
+        else if (is_building) {
+            return is_enemy ?
+                (ignorez ? *building_enemy_occluded : *building_enemy_visible) :
+                (ignorez ? *building_team_occluded : *building_team_visible);
+        }
+        else if (is_projectile) {
+            return is_enemy ?
+                (ignorez ? *projectile_enemy_occluded : *projectile_enemy_visible) :
+                (ignorez ? *projectile_team_occluded : *projectile_team_visible);
+        }
+    } catch (...) {}
 
     return colors::white;
 }
@@ -283,7 +350,10 @@ static void ApplyChams(IClientEntity* entity, bool ignorez, const DrawModelState
 
     try {
         rgba_t color = GetEntityColor(entity, ignorez);
-        float alpha = entity->GetClientClass()->m_ClassID == RCC_PLAYER ? *player_alpha : *building_alpha;
+        auto cc = entity->GetClientClass();
+        if (!cc)
+            return;
+        float alpha = (cc->m_ClassID == RCC_PLAYER ? *player_alpha : *building_alpha);
         
         // Clamp alpha to valid range
         alpha = std::clamp(alpha, 0.0f, 1.0f);
@@ -316,6 +386,120 @@ static void ApplyChams(IClientEntity* entity, bool ignorez, const DrawModelState
     }
 }
 
+static void RenderBacktrack(const DrawModelState_t& state, const ModelRenderInfo_t& info) {
+    if (!backtrack_enabled)
+        return;
+
+    auto entity = g_IEntityList->GetClientEntity(info.entity_index);
+    auto cc = (entity ? entity->GetClientClass() : nullptr);
+    if (!entity || !cc || cc->m_ClassID != RCC_PLAYER)
+        return;
+
+    CachedEntity* ent = ENTITY(info.entity_index);
+    if (CE_BAD(ent) || !ent->m_bAlivePlayer() || !ent->m_bEnemy())
+        return;
+
+    auto& records = hacks::tf2::backtrack::bt_data[info.entity_index];
+    if (records.empty())
+        return;
+
+    IMaterial* material = mat_regular.material;
+    if (!material || material->IsErrorMaterial())
+        return;
+
+    float original_color[3];
+    float original_blend;
+    g_IVRenderView->GetColorModulation(original_color);
+    original_blend = g_IVRenderView->GetBlend();
+
+    colors::rgba_t color = *backtrack_color;
+    float color_array[3] = {
+        std::clamp(color.r / 255.0f, 0.0f, 1.0f),
+        std::clamp(color.g / 255.0f, 0.0f, 1.0f),
+        std::clamp(color.b / 255.0f, 0.0f, 1.0f)
+    };
+
+    g_IVRenderView->SetColorModulation(color_array);
+    g_IVRenderView->SetBlend(color.a / 255.0f);
+    g_IVModelRender->ForcedMaterialOverride(material);
+
+    switch (*backtrack_draw) {
+    case 0: // Last
+        if (!records.empty()) {
+            auto& record = records.back();
+            original::DrawModelExecute(g_IVModelRender, state, info, record.bones.data());
+        }
+        break;
+    case 1: // First + Last
+        if (!records.empty()) {
+            auto& first = records.front();
+            auto& last = records.back();
+            original::DrawModelExecute(g_IVModelRender, state, info, first.bones.data());
+            original::DrawModelExecute(g_IVModelRender, state, info, last.bones.data());
+        }
+        break;
+    case 2: // All
+        for (auto& record : records) {
+            original::DrawModelExecute(g_IVModelRender, state, info, record.bones.data());
+        }
+        break;
+    }
+
+    g_IVModelRender->ForcedMaterialOverride(nullptr);
+    g_IVRenderView->SetColorModulation(original_color);
+    g_IVRenderView->SetBlend(original_blend);
+}
+
+static void RenderFakeAngle(const DrawModelState_t& state, const ModelRenderInfo_t& info, matrix3x4_t* bone) {
+    if (!fakeangle_enabled || info.entity_index != g_IEngine->GetLocalPlayer())
+        return;
+
+    if (!LOCAL_E || CE_BAD(LOCAL_E))
+        return;
+
+    if (!hacks::shared::antiaim::isEnabled())
+        return;
+
+    if (!info.pRenderable || !info.pModel)
+        return;
+
+    IMaterial* material = mat_regular.material;
+    if (!material || material->IsErrorMaterial())
+        return;
+
+    // Save original state
+    float original_color[3] = { 0.0f, 0.0f, 0.0f };
+    float original_blend = 0.0f;
+    
+    try {
+        g_IVRenderView->GetColorModulation(original_color);
+        original_blend = g_IVRenderView->GetBlend();
+    } catch (...) {
+        return;
+    }
+
+    try {
+        colors::rgba_t color = *fakeangle_color;
+        float color_array[3] = {
+            std::clamp(color.r / 255.0f, 0.0f, 1.0f),
+            std::clamp(color.g / 255.0f, 0.0f, 1.0f),
+            std::clamp(color.b / 255.0f, 0.0f, 1.0f)
+        };
+
+        g_IVRenderView->SetColorModulation(color_array);
+        g_IVRenderView->SetBlend(color.a / 255.0f);
+        g_IVModelRender->ForcedMaterialOverride(material);
+
+        // Draw the model with original bones
+        original::DrawModelExecute(g_IVModelRender, state, info, bone);
+    } catch (...) {}
+
+    // Always restore original state
+    g_IVModelRender->ForcedMaterialOverride(nullptr);
+    g_IVRenderView->SetColorModulation(original_color);
+    g_IVRenderView->SetBlend(original_blend);
+}
+
 DEFINE_HOOKED_METHOD(DrawModelExecute, void, IVModelRender* this_, const DrawModelState_t& state, const ModelRenderInfo_t& info, matrix3x4_t* bone) {
     if (!this_ || !g_IVModelRender || !g_IMaterialSystem || !g_IVRenderView || !isHackActive() || 
         effect_glow::g_EffectGlow.drawing || (*clean_screenshots && g_IEngine->IsTakingScreenshot()) || 
@@ -338,62 +522,91 @@ DEFINE_HOOKED_METHOD(DrawModelExecute, void, IVModelRender* this_, const DrawMod
     }
 
     try {
+        // Create materials before any rendering
         CreateMaterials();
+
+        // Save original state
+        float original_color[3] = { 0.0f, 0.0f, 0.0f };
+        float original_blend = 0.0f;
+        g_IVRenderView->GetColorModulation(original_color);
+        original_blend = g_IVRenderView->GetBlend();
+
+        bool restore_needed = false;
+        bool handled = false;
 
         // Handle arms
         if (strstr(name, "arms") || strstr(name, "c_engineer_gunslinger")) {
             if (no_arms)
                 return;
-            return original::DrawModelExecute(this_, state, info, bone);
+
+            if (viewmodel_hands && mat_regular.material && !mat_regular.material->IsErrorMaterial()) {
+                colors::rgba_t color = *viewmodel_hands_color;
+                float color_array[3] = {
+                    std::clamp(color.r / 255.0f, 0.0f, 1.0f),
+                    std::clamp(color.g / 255.0f, 0.0f, 1.0f),
+                    std::clamp(color.b / 255.0f, 0.0f, 1.0f)
+                };
+                g_IVRenderView->SetColorModulation(color_array);
+                g_IVRenderView->SetBlend(color.a / 255.0f);
+                g_IVModelRender->ForcedMaterialOverride(mat_regular.material);
+                restore_needed = true;
+                original::DrawModelExecute(this_, state, info, bone);
+                handled = true;
+            }
+            if (!handled)
+                original::DrawModelExecute(this_, state, info, bone);
+            goto cleanup;
         }
 
         // Handle weapons
         if (strstr(name, "weapons/w_") || strstr(name, "weapons/c_")) {
-            if (!enable)
-                return original::DrawModelExecute(this_, state, info, bone);
-
-            CachedEntity* ent = ENTITY(entity->entindex());
-            if (CE_BAD(ent))
-                return original::DrawModelExecute(this_, state, info, bone);
-
-            int owner_idx = HandleToIDX(NET_INT(ent, netvar.hOwner));
-            if (owner_idx <= 0 || owner_idx > g_IEngine->GetMaxClients())
-                return original::DrawModelExecute(this_, state, info, bone);
-
-            CachedEntity* owner = ENTITY(owner_idx);
-            if (CE_BAD(owner))
-                return original::DrawModelExecute(this_, state, info, bone);
-
-            bool is_enemy = owner->m_bEnemy();
-            bool should_render = (is_enemy && *weapons_enemy) || (!is_enemy && *weapons_teammate);
-
-            if (should_render) {
-                if (!legit && novis && mat_ignorez.material && !mat_ignorez.material->IsErrorMaterial())
-                    ApplyChams(entity, true, state, info, bone);
-                if (mat_regular.material && !mat_regular.material->IsErrorMaterial())
-                    ApplyChams(entity, false, state, info, bone);
-                return;
+            if (viewmodel_weapon && mat_regular.material && !mat_regular.material->IsErrorMaterial()) {
+                colors::rgba_t color = *viewmodel_weapon_color;
+                float color_array[3] = {
+                    std::clamp(color.r / 255.0f, 0.0f, 1.0f),
+                    std::clamp(color.g / 255.0f, 0.0f, 1.0f),
+                    std::clamp(color.b / 255.0f, 0.0f, 1.0f)
+                };
+                g_IVRenderView->SetColorModulation(color_array);
+                g_IVRenderView->SetBlend(color.a / 255.0f);
+                g_IVModelRender->ForcedMaterialOverride(mat_regular.material);
+                restore_needed = true;
+                original::DrawModelExecute(this_, state, info, bone);
+                handled = true;
             }
-            
-            if (*weapons_original)
-                return original::DrawModelExecute(this_, state, info, bone);
-            return;
+            if (!handled && weapons_original)
+                original::DrawModelExecute(this_, state, info, bone);
+            goto cleanup;
         }
 
-        if (!ShouldRenderChams(entity))
-            return original::DrawModelExecute(this_, state, info, bone);
+        // Handle backtrack and fake angle
+        {
+            auto cc = (entity ? entity->GetClientClass() : nullptr);
+            if (cc && cc->m_ClassID == RCC_PLAYER) {
+                RenderBacktrack(state, info);
+                RenderFakeAngle(state, info, bone);
+            }
+        }
 
-        if (render_original && !legit)
+        if (!ShouldRenderChams(entity)) {
             original::DrawModelExecute(this_, state, info, bone);
+            goto cleanup;
+        }
 
-        if (!legit && novis && mat_ignorez.material && !mat_ignorez.material->IsErrorMaterial())
+        if (!legit && mat_ignorez.material && !mat_ignorez.material->IsErrorMaterial())
             ApplyChams(entity, true, state, info, bone);
         if (mat_regular.material && !mat_regular.material->IsErrorMaterial())
             ApplyChams(entity, false, state, info, bone);
+
+cleanup:
+        if (restore_needed) {
+            g_IVModelRender->ForcedMaterialOverride(nullptr);
+            g_IVRenderView->SetColorModulation(original_color);
+            g_IVRenderView->SetBlend(original_blend);
+        }
     } catch (...) {
-        // Restore default material state and return
         g_IVModelRender->ForcedMaterialOverride(nullptr);
-        return original::DrawModelExecute(this_, state, info, bone);
+        original::DrawModelExecute(this_, state, info, bone);
     }
 }
 
