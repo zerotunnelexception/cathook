@@ -51,8 +51,9 @@ Then start tf2 32bit and attach cathook (by "sudo ./attach")
 ## Community
 
 </div>
-Join our Telegram groups:
+Join our groups:
 
+- [Discord](https://discord.gg/FnPer9Nk5E)
 - [Chat](https://t.me/cathookcom).
 - [Announcements](https://t.me/cathookmel).
 <div align="center">
