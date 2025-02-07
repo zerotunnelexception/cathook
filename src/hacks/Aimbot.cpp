@@ -58,7 +58,8 @@ static settings::Float sticky_autoshoot{ "aimbot.projectile.sticky-autoshoot", "
 
 static settings::Boolean aimbot_debug{ "aimbot.debug", "0" };
 
-static settings::Boolean auto_spin_up{ "aimbot.auto.spin-up", "0" };
+static settings::Boolean autorev{ "aimbot.autorev.enable", "0" };
+static settings::Int autorev_distance{ "aimbot.autorev.distance", "1850" };
 static settings::Boolean minigun_tapfire{ "aimbot.auto.tapfire", "false" };
 static settings::Boolean auto_zoom{ "aimbot.auto.zoom", "0" };
 static settings::Boolean auto_unzoom{ "aimbot.auto.unzoom", "0" };
@@ -467,23 +468,36 @@ void doAutoZoom(bool target_found)
     bool isIdle = target_found ? false : hacks::shared::followbot::isIdle();
     auto nearest = hacks::tf2::NavBot::getNearestPlayerDistance();
 
-    // Keep track of our zoom time
-    static Timer zoomTime{};
+    // Keep track of our zoom/rev time
+    static Timer stateTimer{};
 
-    // Minigun spun up handler
-    if (auto_spin_up && g_pLocalPlayer->weapon()->m_iClassID() == CL_CLASS(CTFMinigun))
+    // autorev
+    if (autorev && g_pLocalPlayer->weapon()->m_iClassID() == CL_CLASS(CTFMinigun))
     {
-        if (target_found)
-            zoomTime.update();
-        if (isIdle || !zoomTime.check(3000))
+        bool should_rev = target_found;
+        
+        // Check distance and idle conditions
+        if (nearest.second < *autorev_distance || (isIdle && !stateTimer.check(3000)))
+        {
+            should_rev = true;
+            if (target_found)
+                stateTimer.update();
+        }
+            
+        // Update rev state
+        if (should_rev && !(current_user_cmd->buttons & IN_ATTACK))
             current_user_cmd->buttons |= IN_ATTACK2;
+        else if (stateTimer.check(3000) && (current_user_cmd->buttons & IN_ATTACK2))
+            current_user_cmd->buttons &= ~IN_ATTACK2;
+            
         return;
     }
 
+    // Handle sniper zoom
     if (auto_zoom && g_pLocalPlayer->holding_sniper_rifle && (target_found || isIdle || nearest.second < *zoom_distance))
     {
         if (target_found)
-            zoomTime.update();
+            stateTimer.update();
         if (not g_pLocalPlayer->bZoomed)
             current_user_cmd->buttons |= IN_ATTACK2;
     }
@@ -491,7 +505,7 @@ void doAutoZoom(bool target_found)
     {
         // Auto-Unzoom
         if (auto_unzoom)
-            if (g_pLocalPlayer->holding_sniper_rifle && g_pLocalPlayer->bZoomed && zoomTime.check(3000))
+            if (g_pLocalPlayer->holding_sniper_rifle && g_pLocalPlayer->bZoomed && stateTimer.check(3000))
                 current_user_cmd->buttons |= IN_ATTACK2;
     }
 }

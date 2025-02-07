@@ -43,9 +43,13 @@
             <AutoVariable width="fill" target="navbot.search-spells" label="Search spells" tooltip="Became a witch! and automatically collect Halloween spells when you don't have one"/>
             <AutoVariable width="fill" target="navbot.search-powerups" label="Search powerups" tooltip="Automatically collect Mannpower powerups when you don't have one"/>
             <AutoVariable width="fill" target="navbot.search-gargoyles" label="Search gargoyles" tooltip="Automatically collect GARGOYLE during Halloween"/>
+            <AutoVariable width="fill" target="navbot.avoid-stickies" label="Avoid stickies" tooltip="Try to run away from sticky bombs"/>
+            <AutoVariable width="fill" target="navbot.avoid-projectiles" label="Avoid projectiles" tooltip="Try to run away from rockets and pipes"/>
+            <AutoVariable width="fill" target="navbot.sticky-danger-range" label="Sticky danger range" tooltip="Distance to run from sticky bombs" min="100" max="1200"/>
+            <AutoVariable width="fill" target="navbot.projectile-danger-range" label="Projectile danger range" tooltip="Distance to run from rockets and pipes" min="100" max="1200"/>
         </List>
     </Box>
-    <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="170" y="192">
+    <Box name="Shield aimbot" width="content" height="content" padding="12 6 6 6" x="170" y="262">
         <List width="180">
             <AutoVariable width="fill" target="chargeaim.enable" label="Enabled" tooltip="Makes your demoman charge automatically go towards the enemy. Only active when key is held, and does not trigger the charge itself."/>
             <AutoVariable width="fill" target="chargeaim.key" label="Key to hold"/>

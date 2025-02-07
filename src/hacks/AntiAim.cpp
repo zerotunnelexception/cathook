@@ -19,6 +19,12 @@ static settings::Boolean enable{ "antiaim.enable", "0" };
 static settings::Boolean no_clamping{ "antiaim.no-clamp", "0" };
 static settings::Float roll{ "antiaim.roll", "0" };
 static settings::Float spin{ "antiaim.spin-speed", "10" };
+static settings::Float timekiller_spin_speed{ "antiaim.timekiller-spin-speed", "7200" };  // 7200 = 20 full rotations per second
+static settings::Float mercedes_speed{ "antiaim.mercedes-speed", "2.5" };  // One full rotation every 2.5 seconds
+
+// For ultra random pitch
+static settings::Float ultrarand_pitch_speed{ "antiaim.ultrarand-pitch-speed", "100" };  // Changes per second
+static settings::Float ultrarand_pitch_range{ "antiaim.ultrarand-pitch-range", "180" };  // Maximum pitch angle range
 
 static settings::Int pitch_fake{ "antiaim.pitch.fake", "0" };
 static settings::Int pitch_real{ "antiaim.pitch.real", "0" };
@@ -498,6 +504,43 @@ void ProcessUserCmd(CUserCmd *cmd)
 	case 12: // Random Clamped
 		y = RandFloatRange(-180.0f, 180.0f);
 		break;
+	case 13: // TIMEKILLER
+		{
+			static float accumulator = 0.0f;
+			float speed = (float)timekiller_spin_speed;
+			accumulator += speed * g_GlobalVars->interval_per_tick;
+			
+			// Keep accumulator in reasonable bounds while maintaining smoothness
+			if (accumulator > 360.0f)
+				accumulator -= 360.0f;
+			
+			y += accumulator;
+		}
+		break;
+	case 14: // Mercedes
+        {
+            static float mercedes_time_yaw = 0.0f;
+            float speed = (float)mercedes_speed;
+            
+            // Prevent division by zero and extremely small values
+            if (speed < 0.1f)
+                speed = 0.1f;
+                
+            mercedes_time_yaw += g_GlobalVars->interval_per_tick;
+            // Keep time in reasonable bounds
+            if (mercedes_time_yaw > 1000.0f)
+                mercedes_time_yaw = 0.0f;
+                
+            float angle = (mercedes_time_yaw / speed) * M_PI * 2.0f;
+            // Ensure angle is in reasonable bounds
+            while (angle > M_PI * 2.0f)
+                angle -= M_PI * 2.0f;
+            while (angle < 0.0f)
+                angle += M_PI * 2.0f;
+                
+            y = cosf(angle * 3.0f) * 180.0f;
+        }
+        break;
 	default:
 		break;
 	}
@@ -529,6 +572,48 @@ void ProcessUserCmd(CUserCmd *cmd)
     case 7: // Heck
         FuckPitch(p);
         clamp = false;
+        break;
+    case 8: // Tronic
+        {
+            static float last_random = 0.0f;
+            static float last_time = 0.0f;
+            float current_time = g_GlobalVars->curtime;
+            float speed = (float)ultrarand_pitch_speed;
+            
+            // Update random value based on speed
+            if (current_time - last_time > (1.0f / speed))
+            {
+                last_random = RandFloatRange(-89.0f, 89.0f);
+                last_time = current_time;
+            }
+            
+            p = last_random;
+        }
+        break;
+    case 9: // Mercedes
+        {
+            static float mercedes_time = 0.0f;
+            float speed = (float)mercedes_speed;
+            
+            // Prevent division by zero and extremely small values
+            if (speed < 0.1f)
+                speed = 0.1f;
+                
+            mercedes_time += g_GlobalVars->interval_per_tick;
+            // Keep time in reasonable bounds
+            if (mercedes_time > 1000.0f)
+                mercedes_time = 0.0f;
+                
+            float angle = (mercedes_time / speed) * M_PI * 2.0f;
+            // Ensure angle is in reasonable bounds
+            while (angle > M_PI * 2.0f)
+                angle -= M_PI * 2.0f;
+            while (angle < 0.0f)
+                angle += M_PI * 2.0f;
+                
+            p = sinf(angle * 3.0f) * 89.0f;
+        }
+        break;
     }
     
     // Fake is done afterwards so that they can be applied on top of the real angles set above
@@ -545,6 +630,47 @@ void ProcessUserCmd(CUserCmd *cmd)
 			p += 360.0f;
 		else if (p >= 89.0f)
 			p -= 360.0f;
+        break;
+    case 4: // Tronic
+        {
+            static float fake_last_random = 0.0f;
+            static float fake_last_time = 0.0f;
+            float current_time = g_GlobalVars->curtime;
+            float speed = (float)ultrarand_pitch_speed;
+            
+            // Update random value based on speed
+            if (current_time - fake_last_time > (1.0f / speed))
+            {
+                fake_last_random = RandFloatRange(-89.0f, 89.0f);
+                fake_last_time = current_time;
+            }
+            
+            p = fake_last_random;
+        }
+        break;
+    case 5: // Mercedes
+        {
+            static float mercedes_time_fake = 0.0f;
+            float speed = (float)mercedes_speed;
+            
+            // Prevent division by zero and extremely small values
+            if (speed < 0.1f)
+                speed = 0.1f;
+                
+            mercedes_time_fake += g_GlobalVars->interval_per_tick;
+            // Keep time in reasonable bounds
+            if (mercedes_time_fake > 1000.0f)
+                mercedes_time_fake = 0.0f;
+                
+            float angle = (mercedes_time_fake / speed) * M_PI * 2.0f;
+            // Ensure angle is in reasonable bounds
+            while (angle > M_PI * 2.0f)
+                angle -= M_PI * 2.0f;
+            while (angle < 0.0f)
+                angle += M_PI * 2.0f;
+                
+            p = sinf(angle * 3.0f + M_PI) * 89.0f;
+        }
         break;
     }
     

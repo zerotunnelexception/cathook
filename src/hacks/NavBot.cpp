@@ -18,6 +18,8 @@
 
 namespace hacks::tf2::NavBot
 {
+#define TEAM_NEUTRAL 0  // Add at top with other defines
+
 static settings::Boolean enabled("navbot.enabled", "false");
 static settings::Boolean search_health("navbot.search-health", "true");
 static settings::Boolean search_ammo("navbot.search-ammo", "true");
@@ -43,6 +45,10 @@ static settings::Boolean blacklist_dormat("navbot.proximity-blacklist.dormant", 
 static settings::Int blacklist_delay_dormat("navbot.proximity-blacklist.delay-dormant", "1000");
 static settings::Int blacklist_slightdanger_limit("navbot.proximity-blacklist.slight-danger.amount", "2");
 static settings::Boolean engie_mode("navbot.engineer-mode", "false");
+static settings::Boolean avoid_stickies("navbot.avoid-stickies", "true");
+static settings::Boolean avoid_projectiles("navbot.avoid-projectiles", "true");
+static settings::Float sticky_danger_range("navbot.sticky-danger-range", "600");
+static settings::Float projectile_danger_range("navbot.projectile-danger-range", "600");
 #if ENABLE_VISUALS
 static settings::Boolean draw_danger("navbot.draw-danger", "false");
 #endif
@@ -1490,10 +1496,22 @@ std::optional<Vector> getCtfGoal(int our_team, int enemy_team)
 
     current_capturetype = ctf;
 
+    // Assist other bots with capturing
+    if (status == TF_FLAGINFO_STOLEN && carrier != LOCAL_E)
+    {
+        // If carrier is a friendly bot/player, help them by following
+        if (carrier->m_iTeam() == our_team)
+        {
+            // Stay slightly behind and to the side to avoid blocking
+            auto carrier_pos = *carrier->m_vecDormantOrigin();
+            Vector offset(40.0f, 40.0f, 0.0f);
+            return carrier_pos - offset;
+        }
+    }
+
     // Flag is taken by us
     if (status == TF_FLAGINFO_STOLEN)
     {
-        // CTF is the current capture type.
         if (carrier == LOCAL_E)
         {
             // Return our capture point location
@@ -1502,10 +1520,11 @@ std::optional<Vector> getCtfGoal(int our_team, int enemy_team)
         }
     }
     // Get the flag if not taken by us already
-    else
+    else if (status == TF_FLAGINFO_DROPPED || status == TF_FLAGINFO_HOME)
     {
         return position;
     }
+
     return std::nullopt;
 }
 
@@ -1517,17 +1536,53 @@ std::optional<Vector> getPayloadGoal(int our_team)
         return std::nullopt;
     current_capturetype = payload;
 
-    // Adjust position so it's not floating high up, provided the local player is close.
-    if (LOCAL_E->m_vecOrigin().DistTo(*position) <= 150.0f)
-        (*position).z = LOCAL_E->m_vecOrigin().z;
-    // If close enough, don't move (mostly due to lifts)
-    if ((*position).DistTo(LOCAL_E->m_vecOrigin()) <= 50.0f)
+    // Get number of teammates near cart to coordinate positioning
+    int teammates_near_cart = 0;
+    float cart_radius = 150.0f; // Approx cart capture radius
+    
+    for (const auto &ent : entity_cache::player_cache)
+    {
+        if (!ent->m_bAlivePlayer() || ent->m_iTeam() != our_team || ent == LOCAL_E)
+            continue;
+            
+        if (ent->m_vecOrigin().DistTo(*position) <= cart_radius)
+            teammates_near_cart++;
+    }
+
+    // Adjust position based on number of teammates to avoid crowding
+    Vector adjusted_pos = *position;
+    if (teammates_near_cart > 0)
+    {
+        // Create a ring formation around cart
+        float angle = M_PI * 2 * (float)(g_pLocalPlayer->entity_idx % (teammates_near_cart + 1)) / (teammates_near_cart + 1);
+        Vector offset(cos(angle) * 75.0f, sin(angle) * 75.0f, 0.0f);
+        adjusted_pos += offset;
+    }
+
+    // Adjust height based on local ground height when close
+    if (LOCAL_E->m_vecOrigin().DistTo(adjusted_pos) <= cart_radius)
+    {
+        // Trace down to find ground height
+        Vector ground_pos = adjusted_pos;
+        ground_pos.z += 80.0f; // Start above cart
+        
+        Ray_t ray;
+        trace_t trace;
+        ray.Init(ground_pos, ground_pos - Vector(0, 0, 256));
+        g_ITrace->TraceRay(ray, MASK_PLAYERSOLID, &trace::filter_default, &trace);
+        
+        if (trace.DidHit())
+            adjusted_pos.z = trace.endpos.z;
+    }
+
+    // If very close to adjusted position, don't move
+    if (adjusted_pos.DistTo(LOCAL_E->m_vecOrigin()) <= 50.0f)
     {
         overwrite_capture = true;
         return std::nullopt;
     }
-    else
-        return position;
+
+    return adjusted_pos;
 }
 
 std::optional<Vector> getControlPointGoal(int our_team)
@@ -1540,27 +1595,133 @@ std::optional<Vector> getControlPointGoal(int our_team)
     if (!position)
         return std::nullopt;
 
-    // Randomize where on the point we walk a bit so bots don't just stand there
-    if (previous_position != *position || !navparser::NavEngine::isPathing())
+    current_capturetype = controlpoints;
+
+    // Get number of teammates on point
+    int teammates_on_point = 0;
+    float cap_radius = 100.0f; // Approximate capture radius
+    
+    for (const auto &ent : entity_cache::player_cache)
     {
-        previous_position   = *position;
-        randomized_position = *position;
-        randomized_position.x += RandomFloat(0.0f, 100.0f);
-        randomized_position.y += RandomFloat(0.0f, 100.0f);
+        if (!ent->m_bAlivePlayer() || ent->m_iTeam() != our_team || ent == LOCAL_E)
+            continue;
+            
+        if (ent->m_vecOrigin().DistTo(*position) <= cap_radius)
+            teammates_on_point++;
     }
 
-    current_capturetype = controlpoints;
-    // Try to navigate
-    return randomized_position;
+    // Check for enemies near point
+    bool enemies_near = false;
+    float threat_radius = 800.0f; // Distance to check for enemies
+    
+    for (const auto &ent : entity_cache::player_cache)
+    {
+        if (!ent->m_bAlivePlayer() || ent->m_iTeam() == our_team)
+            continue;
+            
+        if (ent->m_vecOrigin().DistTo(*position) <= threat_radius)
+        {
+            enemies_near = true;
+            break;
+        }
+    }
+
+    Vector adjusted_pos = *position;
+
+    // If enemies are near, take defensive positions
+    if (enemies_near)
+    {
+        // Find nearby cover points
+        for (auto &area : navparser::NavEngine::getNavFile()->m_areas)
+        {
+            for (auto &hiding_spot : area.m_hidingSpots)
+            {
+                if (hiding_spot.HasGoodCover() && hiding_spot.m_pos.DistTo(*position) <= cap_radius)
+                {
+                    adjusted_pos = hiding_spot.m_pos;
+                    break;
+                }
+            }
+        }
+    }
+    // Otherwise spread out in capture formation
+    else
+    {
+        // Only update position when needed
+        if (previous_position != *position || !navparser::NavEngine::isPathing())
+        {
+            previous_position = *position;
+            
+            // Create spread out formation based on player index and class
+            float base_radius = 120.0f;
+            
+            // Add some randomization but keep formation
+            float angle = M_PI * 2 * (float)(g_pLocalPlayer->entity_idx % (teammates_on_point + 1)) / (teammates_on_point + 1);
+            float radius = base_radius + RandomFloat(-10.0f, 10.0f);
+            Vector offset(cos(angle) * radius, sin(angle) * radius, 0.0f);
+            
+            adjusted_pos += offset;
+        }
+    }
+
+    // If close enough to adjusted position, don't move
+    if (adjusted_pos.DistTo(LOCAL_E->m_vecOrigin()) <= 50.0f)
+    {
+        overwrite_capture = true;
+        return std::nullopt;
+    }
+
+    return adjusted_pos;
 }
 
-// Try to capture objectives
+std::optional<Vector> getDoomsdayGoal(int our_team, int enemy_team)
+{
+    // Get Australium related information
+    auto status = flagcontroller::getStatus(TEAM_NEUTRAL);  // Australium is neutral team
+    auto position = flagcontroller::getPosition(TEAM_NEUTRAL);
+    auto carrier = flagcontroller::getCarrier(TEAM_NEUTRAL);
+
+    // No australium found
+    if (!position)
+        return std::nullopt;
+
+    current_capturetype = ctf;  // Doomsday uses CTF mechanics
+
+    // Help friendly carrier
+    if (status == TF_FLAGINFO_STOLEN && carrier != LOCAL_E)
+    {
+        if (carrier->m_iTeam() == our_team)
+        {
+            // Stay slightly behind and to the side to avoid blocking
+            auto carrier_pos = *carrier->m_vecDormantOrigin();
+            Vector offset(40.0f, 40.0f, 0.0f);
+            return carrier_pos - offset;
+        }
+    }
+
+    // We have the australium
+    if (status == TF_FLAGINFO_STOLEN && carrier == LOCAL_E)
+    {
+        // Get rocket position - in Doomsday it's marked as a cap point
+        auto rocket = cpcontroller::getClosestControlPoint(g_pLocalPlayer->v_Origin, our_team);
+        if (rocket)
+            return *rocket;
+    }
+    // Get the australium if not taken
+    else if (status == TF_FLAGINFO_DROPPED || status == TF_FLAGINFO_HOME)
+    {
+        return position;
+    }
+
+    return std::nullopt;
+}
+
 bool captureObjectives()
 {
     static Timer capture_timer;
     static Vector previous_target(0.0f);
-    // Not active or on a doomsday map
-    if (!capture_objectives || is_doomsday || !capture_timer.check(2000))
+
+    if (!*capture_objectives || !capture_timer.check(2000))
         return false;
 
     // Priority too high, don't try
@@ -1576,16 +1737,27 @@ bool captureObjectives()
     current_capturetype = no_capture;
     overwrite_capture   = false;
 
-    // Run ctf logic
-    target = getCtfGoal(our_team, enemy_team);
-    // Not ctf, run payload
-    if (current_capturetype == no_capture)
+    // Check if we're on doomsday
+    auto map_name = std::string(g_IEngine->GetLevelName());
+    bool is_doomsday = map_name.find("sd_doomsday") != map_name.npos;
+
+    if (is_doomsday)
     {
-        target = getPayloadGoal(our_team);
-        // Not payload, run control points
+        target = getDoomsdayGoal(our_team, enemy_team);
+    }
+    else
+    {
+        // Run ctf logic
+        target = getCtfGoal(our_team, enemy_team);
+        // Not ctf, run payload
         if (current_capturetype == no_capture)
         {
-            target = getControlPointGoal(our_team);
+            target = getPayloadGoal(our_team);
+            // Not payload, run control points
+            if (current_capturetype == no_capture)
+            {
+                target = getControlPointGoal(our_team);
+            }
         }
     }
 
@@ -1619,117 +1791,115 @@ bool captureObjectives()
 bool doRoam()
 {
     static Timer roam_timer;
+    static std::vector<CNavArea*> visited_areas;
+    static Timer visited_areas_clear_timer;
+    static CNavArea* current_target = nullptr;
+    static int consecutive_fails = 0;
+    
+    // Clear visited areas every 60 seconds to allow revisiting
+    if (visited_areas_clear_timer.test_and_set(60000))
+    {
+        visited_areas.clear();
+        consecutive_fails = 0;
+    }
+    
     // Don't path constantly
     if (!roam_timer.test_and_set(2000))
-        return false;
+        return navparser::NavEngine::current_priority == patrol;
 
-    // Defend our objective if possible
-    if (defend_during_roam)
-    {
-        int enemy_team = g_pLocalPlayer->team == TEAM_BLU ? TEAM_RED : TEAM_BLU;
+    // If we have a current target and are pathing, continue
+    if (current_target && navparser::NavEngine::current_priority == patrol)
+        return true;
 
-        std::optional<Vector> target;
-        target = getPayloadGoal(enemy_team);
-        if (!target)
-            target = getControlPointGoal(enemy_team);
-        
-        if (target)
-        {
-            float distance_to_objective = (*target).DistTo(g_pLocalPlayer->v_Origin);
-            
-            // If we're too close to the objective, back off a bit
-            if (distance_to_objective <= 250.0f)
-            {
-                // Try to find a good defensive position
-                for (auto& spot : sniper_spots)
-                {
-                    float dist_from_objective = spot.DistTo(*target);
-                    // Look for spots that are 300-600 units from objective
-                    if (dist_from_objective >= 300.0f && dist_from_objective <= 600.0f)
-                    {
-                        if (navparser::NavEngine::navTo(spot, patrol))
-                            return true;
-                    }
-                }
-                navparser::NavEngine::cancelPath();
-                return true;
-            }
-            // If we're too far, get closer
-            else if (distance_to_objective > 800.0f)
-            {
-                if (navparser::NavEngine::navTo(*target, patrol, true, navparser::NavEngine::current_priority != patrol))
-                    return true;
-            }
-            // If we're at a good distance, hold position
-            else if (navparser::NavEngine::current_priority != patrol)
-            {
-                navparser::NavEngine::cancelPath();
-                return true;
-            }
-        }
-    }
+    // Reset current target
+    current_target = nullptr;
 
-    // Don't overwrite current roam
-    if (navparser::NavEngine::current_priority == patrol)
-        return false;
-
-        // No sniper spots :shrug:
-    if (!sniper_spots.empty())
-    {
-        // Get all sniper spots and sort them by distance
-        std::vector<std::pair<Vector*, float>> sorted_spots;
-        for (auto& spot : sniper_spots)
-        {
-            float dist = spot.DistTo(g_pLocalPlayer->v_Origin);
-            // Only consider spots between 200-800 units away
-            if (dist >= 200.0f && dist <= 800.0f)
-                sorted_spots.push_back({&spot, dist});
-        }
-
-        // Sort by distance
-        std::sort(sorted_spots.begin(), sorted_spots.end(), 
-            [](const std::pair<Vector*, float>& a, const std::pair<Vector*, float>& b) {
-                return a.second < b.second;
-            });
-
-        // Try closest valid spots first
-        for (auto& spot : sorted_spots)
-        {
-            if (navparser::NavEngine::navTo(*spot.first, patrol))
-                return true;
-        }
-    }
-
-    // If no sniper spots available or couldn't path to them, try to roam to random nav areas
-    std::vector<CNavArea*> valid_areas;
-    
     // Get our current nav area
     auto current_area = navparser::NavEngine::findClosestNavSquare(g_pLocalPlayer->v_Origin);
     if (!current_area)
         return false;
 
-    // Collect valid nav areas that are connected to our current area
-    for (auto& connection : current_area->m_connections)
+    std::vector<CNavArea*> valid_areas;
+    
+    // Get all nav areas
+    for (auto& area : navparser::NavEngine::getNavFile()->m_areas)
     {
-        auto area = connection.area;
         // Skip if area is blacklisted
-        if (navparser::NavEngine::getFreeBlacklist()->find(area) != navparser::NavEngine::getFreeBlacklist()->end())
+        if (navparser::NavEngine::getFreeBlacklist()->find(&area) != navparser::NavEngine::getFreeBlacklist()->end())
             continue;
             
-        // Skip areas that are too close
-        if (area->m_center.DistTo(g_pLocalPlayer->v_Origin) < 200.0f)
+        // Skip if we recently visited this area
+        if (std::find(visited_areas.begin(), visited_areas.end(), &area) != visited_areas.end())
             continue;
 
-        valid_areas.push_back(area);
+        // Skip areas that are too close
+        float dist = area.m_center.DistTo(g_pLocalPlayer->v_Origin);
+        if (dist < 500.0f)
+            continue;
+            
+        valid_areas.push_back(&area);
     }
 
     // No valid areas found
     if (valid_areas.empty())
+    {
+        // If we failed too many times in a row, clear visited areas
+        if (++consecutive_fails >= 3)
+        {
+            visited_areas.clear();
+            consecutive_fails = 0;
+        }
         return false;
+    }
 
-    // Pick a random valid area
-    auto target_area = valid_areas[rand() % valid_areas.size()];
-    return navparser::NavEngine::navTo(target_area->m_center, patrol);
+    // Reset fail counter since we found valid areas
+    consecutive_fails = 0;
+
+    // Different strategies for area selection
+    std::vector<CNavArea*> potential_targets;
+    
+    // Strategy 1: Try to find areas that are far from current position
+    for (auto area : valid_areas)
+    {
+        float dist = area->m_center.DistTo(g_pLocalPlayer->v_Origin);
+        if (dist > 2000.0f)
+            potential_targets.push_back(area);
+    }
+    
+    // Strategy 2: If no far areas found, try areas that are at medium distance
+    if (potential_targets.empty())
+    {
+        for (auto area : valid_areas)
+        {
+            float dist = area->m_center.DistTo(g_pLocalPlayer->v_Origin);
+            if (dist > 1000.0f && dist <= 2000.0f)
+                potential_targets.push_back(area);
+        }
+    }
+    
+    // Strategy 3: If still no areas found, use any valid area
+    if (potential_targets.empty())
+        potential_targets = valid_areas;
+
+    // Shuffle the potential targets to add randomness
+    for (int i = potential_targets.size() - 1; i > 0; i--)
+    {
+        int j = rand() % (i + 1);
+        std::swap(potential_targets[i], potential_targets[j]);
+    }
+
+    // Try to path to potential targets
+    for (auto area : potential_targets)
+    {
+        if (navparser::NavEngine::navTo(area->m_center, patrol))
+        {
+            current_target = area;
+            visited_areas.push_back(area);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // Run away from dangerous areas
@@ -1982,6 +2152,102 @@ static void updateSlot(std::pair<CachedEntity *, float> &nearest)
     }
 }
 
+// Check if a position is safe from stickies and projectiles
+bool isPositionSafe(Vector pos)
+{
+    if (!avoid_stickies && !avoid_projectiles)
+        return true;
+
+    for (auto const &ent : entity_cache::valid_ents)
+    {
+        if (!ent)
+            continue;
+
+        // Check for stickies
+        if (avoid_stickies && ent->m_iClassID() == CL_CLASS(CTFGrenadePipebombProjectile))
+        {
+            // Skip non-sticky projectiles
+            if (CE_INT(ent, netvar.iPipeType) != 1)
+                continue;
+
+            float dist = ent->m_vecOrigin().DistTo(pos);
+            if (dist < *sticky_danger_range)
+                return false;
+        }
+        
+        // Check for rockets and pipes
+        if (avoid_projectiles)
+        {
+            if (ent->m_iClassID() == CL_CLASS(CTFProjectile_Rocket) || 
+                (ent->m_iClassID() == CL_CLASS(CTFGrenadePipebombProjectile) && CE_INT(ent, netvar.iPipeType) == 0))
+            {
+                float dist = ent->m_vecOrigin().DistTo(pos);
+                if (dist < *projectile_danger_range)
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Find safe position to escape to
+bool escapeProjectiles()
+{
+    if (!avoid_stickies && !avoid_projectiles)
+        return false;
+
+    // Don't interrupt higher priority tasks
+    if (navparser::NavEngine::current_priority > danger)
+        return false;
+
+    // Check if current position is unsafe
+    if (isPositionSafe(g_pLocalPlayer->v_Origin))
+    {
+        if (navparser::NavEngine::current_priority == danger)
+            navparser::NavEngine::cancelPath();
+        return false;
+    }
+
+    // Find safe nav areas sorted by distance
+    std::vector<std::pair<CNavArea*, float>> safe_areas;
+    auto *local_nav = navparser::NavEngine::findClosestNavSquare(g_pLocalPlayer->v_Origin);
+    
+    if (!local_nav)
+        return false;
+
+    for (auto &area : navparser::NavEngine::getNavFile()->m_areas)
+    {
+        // Skip current area
+        if (&area == local_nav)
+            continue;
+            
+        // Skip if area is blacklisted
+        if (navparser::NavEngine::getFreeBlacklist()->find(&area) != navparser::NavEngine::getFreeBlacklist()->end())
+            continue;
+
+        if (isPositionSafe(area.m_center))
+        {
+            float dist = area.m_center.DistTo(g_pLocalPlayer->v_Origin);
+            safe_areas.push_back({&area, dist});
+        }
+    }
+
+    // Sort by distance
+    std::sort(safe_areas.begin(), safe_areas.end(),
+        [](const std::pair<CNavArea*, float> &a, const std::pair<CNavArea*, float> &b) {
+            return a.second < b.second;
+        });
+
+    // Try to path to closest safe area
+    for (auto &area : safe_areas)
+    {
+        if (navparser::NavEngine::navTo(area.first->m_center, danger))
+            return true;
+    }
+
+    return false;
+}
+
 static void CreateMove()
 {
     if (!enabled || !navparser::NavEngine::isReady())
@@ -2028,6 +2294,9 @@ static void CreateMove()
     // Attack people with melee
     if (meleeAttack(slot, nearest))
         return;
+    // Try to escape from projectiles (higher priority than normal danger)
+    if (escapeProjectiles())
+        return;
     // Try to escape danger
     if (escapeDanger())
         return;
@@ -2036,6 +2305,9 @@ static void CreateMove()
         return;
     // If we aren't getting health, get ammo
     if (getAmmo())
+        return;
+    // Try to capture objectives
+    if (captureObjectives())
         return;
     // Try to get spells
     if (getSpells())
@@ -2050,9 +2322,6 @@ static void CreateMove()
         return;
     // Try to snipe sentries
     if (snipeSentries())
-        return;
-    // Try to capture objectives
-    if (captureObjectives())
         return;
     // Try to stalk enemies
     if (stayNear())

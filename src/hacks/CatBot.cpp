@@ -33,6 +33,7 @@ static Timer players_delay{};
 static bool ipc_timer_active = false;
 static bool humans_timer_active = false;
 static bool players_timer_active = false;
+static bool is_requeuing = false;
 
 static settings::Boolean micspam{ "cat-bot.micspam.enable", "false" };
 static settings::Int micspam_on{ "cat-bot.micspam.interval-on", "3" };
@@ -44,6 +45,7 @@ static settings::Boolean random_votekicks{ "cat-bot.votekicks", "false" };
 static settings::Boolean votekick_rage_only{ "cat-bot.votekicks.rage-only", "false" };
 static settings::Boolean autoReport{ "cat-bot.autoreport", "true" };
 static settings::Boolean autovote_map{ "cat-bot.autovote-map", "true" };
+static settings::Int autovote_map_number{ "cat-bot.autovote-map.option", "0" };
 
 static settings::Boolean mvm_autoupgrade{ "mvm.autoupgrade", "false" };
 
@@ -531,7 +533,7 @@ class CatBotEventListener2 : public IGameEventListener2
     {
         // vote for current map if catbot mode and autovote is on
         if (catbotmode && autovote_map)
-            g_IEngine->ServerCmd("next_map_vote 3");
+            g_IEngine->ServerCmd(format("next_map_vote ", *autovote_map_number).c_str());
             timer_abandon.update();
     }
 };
@@ -766,7 +768,7 @@ void update()
     if (CE_BAD(LOCAL_E))
         return;
             
- if (LOCAL_E->m_bAlivePlayer())
+    if (LOCAL_E->m_bAlivePlayer())
     {
         unstuck.update();
         unstucks = 0;
@@ -818,10 +820,54 @@ void update()
             }
         }
 
+        // Check if we should cancel requeue
+        if (is_requeuing)
+        {
+            bool should_cancel = true;
+
+            // Check all conditions that would make us want to stay in queue
+            if (abandon_if_ipc_bots_gte && count_ipc >= int(*abandon_if_ipc_bots_gte))
+                should_cancel = false;
+            if (abandon_if_humans_lte && count_total - count_ipc <= int(*abandon_if_humans_lte))
+                should_cancel = false;
+            if (abandon_if_players_lte && count_total <= int(*abandon_if_players_lte))
+                should_cancel = false;
+
+            // If none of the conditions are met anymore, cancel requeue
+            if (should_cancel)
+            {
+                tfmm::leaveQueue();
+                is_requeuing = false;
+                logging::Info("Canceling requeue as conditions are no longer met.");
+            }
+        }
+
         if (abandon_if_ipc_bots_gte)
         {
-            if (count_ipc >= int(abandon_if_ipc_bots_gte))
+            // Count IPC bots on our team only
+            int team_ipc_count = 0;
+            for (auto &id : ipc_list)
             {
+                // Get player info to check team
+                for (auto const &ent: entity_cache::player_cache)
+                {
+                    player_info_s info{};
+                    if (!GetPlayerInfo(ent->m_IDX, &info))
+                        continue;
+                        
+                    if (info.friendsID == id && ent->m_iTeam() == g_pLocalPlayer->team)
+                    {
+                        team_ipc_count++;
+                        break;
+                    }
+                }
+            }
+
+            if (team_ipc_count > int(abandon_if_ipc_bots_gte))
+            {
+                // Calculate how many bots need to leave
+                int excess_bots = team_ipc_count - int(abandon_if_ipc_bots_gte);
+
                 // Store local IPC Id and assign to the quit_id variable for later comparisions
                 unsigned local_ipcid = ipc::peer->client_id;
                 unsigned quit_id     = local_ipcid;
@@ -855,8 +901,8 @@ void update()
                         }
                     }
                 }
-                // Only quit if you are the player with the lowest ipc id
-                if (quit_id == local_ipcid)
+                // Only quit if you are among the excess bots (highest IPC IDs)
+                if (quit_id == local_ipcid && team_ipc_count - std::distance(ipc_blacklist.begin(), std::find(ipc_blacklist.begin(), ipc_blacklist.end(), local_ipcid)) <= excess_bots)
                 {
                     if (!ipc_timer_active)
                     {
@@ -873,15 +919,12 @@ void update()
                     ipc_blacklist.clear();
                     ipc_timer_active = false;
 
-                    logging::Info("Requeueing because there are %d local players "
-                                  "in game, and abandon_if_ipc_bots_gte is %d.",
-                                  count_ipc, int(abandon_if_ipc_bots_gte));
-                    if (*abandon_instead_of_requeue)
-                        tfmm::abandon();
-                    else
-                    {
-                        tfmm::startQueue();
-                    }
+                    logging::Info("Abandoning because there are %d local players "
+                                  "in game on our team, and abandon_if_ipc_bots_gte is %d.",
+                                  team_ipc_count, int(abandon_if_ipc_bots_gte));
+                    
+                    // Always abandon, ignore requeue setting
+                    tfmm::abandon();
                     return;
                 }
                 else
@@ -934,6 +977,7 @@ void update()
                 else
                 {
                     tfmm::startQueue();
+                    is_requeuing = true;
                 }
                 return;
             }
@@ -962,6 +1006,7 @@ void update()
                 else
                 {
                     tfmm::startQueue();
+                    is_requeuing = true;
                 }
                 return;
             }

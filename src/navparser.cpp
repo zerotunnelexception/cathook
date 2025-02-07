@@ -126,16 +126,52 @@ struct ConnectionInfo
 Vector handleDropdown(Vector current_pos, Vector next_pos)
 {
     Vector to_target = (next_pos - current_pos);
-    // Only do it if we'd fall quite a bit
-    if (-to_target.z > PLAYER_JUMP_HEIGHT)
+    float height_diff = to_target.z;
+    
+    // Handle drops more carefully
+    if (height_diff < 0)
     {
+        float drop_distance = -height_diff;
+        
+        // Small drops (less than jump height) - no special handling needed
+        if (drop_distance <= PLAYER_JUMP_HEIGHT)
+            return current_pos;
+            
+        // Medium drops - move out a bit to prevent getting stuck
+        if (drop_distance <= PLAYER_HEIGHT)
+        {
+            to_target.z = 0;
+            to_target.NormalizeInPlace();
+            QAngle angles;
+            VectorAngles(to_target, angles);
+            Vector vec_angles(angles.x, angles.y, angles.z);
+            return GetForwardVector(current_pos, vec_angles, PLAYER_WIDTH * 1.5f);
+        }
+        
+        // Large drops - move out significantly to prevent fall damage
         to_target.z = 0;
         to_target.NormalizeInPlace();
-        Vector angles;
+        QAngle angles;
         VectorAngles(to_target, angles);
-        // We need to really make sure we fall, so we go two times as far out as we should have to
-        current_pos = GetForwardVector(current_pos, angles, PLAYER_WIDTH * 2.0f);
+        Vector vec_angles(angles.x, angles.y, angles.z);
+        return GetForwardVector(current_pos, vec_angles, PLAYER_WIDTH * 2.5f);
     }
+    
+    // Handle upward movement
+    if (height_diff > 0)
+    {
+        // If it's within jump height, move closer to help with the jump
+        if (height_diff <= PLAYER_JUMP_HEIGHT)
+        {
+            to_target.z = 0;
+            to_target.NormalizeInPlace();
+            QAngle angles;
+            VectorAngles(-to_target, angles);
+            Vector vec_angles(angles.x, angles.y, angles.z);
+            return GetForwardVector(current_pos, vec_angles, PLAYER_WIDTH * 0.5f);
+        }
+    }
+    
     return current_pos;
 }
 
@@ -161,8 +197,7 @@ navPoints determinePoints(CNavArea *current, CNavArea *next)
     auto next_closest = next->getNearestPoint(area_center.AsVector2D());
 
     // Use one of them as a center point, the one that is either x or y alligned with a center
-    // Of the areas.
-    // This will avoid walking into walls.
+    // Of the areas. This will avoid walking into walls.
     auto center_point = area_closest;
 
     // Determine if alligned, if not, use the other one as the center point
@@ -173,7 +208,7 @@ navPoints determinePoints(CNavArea *current, CNavArea *next)
         center_point.z = current->getNearestPoint(next_closest.AsVector2D()).z;
     }
 
-    // If safepathing is enabled, adjust points to stay more centered
+    // If safepathing is enabled, adjust points to stay more centered and avoid corners
     if (safepathing)
     {
         // Move points more towards the center of the areas
@@ -182,7 +217,30 @@ navPoints determinePoints(CNavArea *current, CNavArea *next)
         to_next.NormalizeInPlace();
 
         // Calculate center point as a weighted average between area centers
-        center_point = area_center + (next_center - area_center) * 0.5f;
+        // Use a 60/40 split to favor the current area more
+        center_point = area_center + (next_center - area_center) * 0.4f;
+        
+        // Add extra safety margin near corners
+        float corner_margin = PLAYER_WIDTH * 0.75f;
+        
+        // Check if we're near a corner by comparing distances to area edges
+        bool near_corner = false;
+        Vector area_mins = current->m_nwCorner; // Northwest corner
+        Vector area_maxs = current->m_seCorner; // Southeast corner
+        
+        if (center_point.x - area_mins.x < corner_margin || 
+            area_maxs.x - center_point.x < corner_margin ||
+            center_point.y - area_mins.y < corner_margin || 
+            area_maxs.y - center_point.y < corner_margin)
+        {
+            near_corner = true;
+        }
+        
+        // If near corner, move point more towards center
+        if (near_corner)
+        {
+            center_point = center_point + (area_center - center_point).Normalized() * corner_margin;
+        }
         
         // Ensure the point is within the current area
         center_point = current->getNearestPoint(center_point.AsVector2D());
@@ -510,8 +568,39 @@ Vector last_destination;
 
 bool isReady()
 {
-    // F you Pipeline
-    return enabled && map && map->state == NavState::Active && (GetLevelName() == "plr_pipeline" || (g_pGameRules->roundmode > 3 && (g_pTeamRoundTimer->GetRoundState() != RT_STATE_SETUP || g_pLocalPlayer->team != TEAM_BLU)));
+    if (!g_IEngine->IsInGame())
+        return false;
+
+    // Don't run if we're not enabled
+    if (!*enabled || !map || map->state != NavState::Active)
+        return false;
+
+    // Get current map name and game state
+    std::string level_name = GetLevelName();
+    auto round_state = g_pTeamRoundTimer->GetRoundState();
+
+    // Handle setup time restrictions
+    bool in_setup = round_state == RT_STATE_SETUP;
+    bool is_blu = g_pLocalPlayer->team == TEAM_BLU;
+
+    // Special case for Pipeline which doesn't use standard setup time
+    if (level_name == "plr_pipeline")
+        return true;
+
+    // Check if we're in setup time and on BLU team
+    if (in_setup && is_blu)
+    {
+        // Only restrict movement on attack/defend and payload maps during setup
+        if (level_name.compare(0, 3, "pl_") == 0 || level_name.compare(0, 3, "cp_") == 0)
+        {
+            // Cancel any active pathing
+            if (navparser::NavEngine::isPathing())
+                navparser::NavEngine::cancelPath();
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool isPathing()
@@ -718,15 +807,29 @@ static void followCrumbs()
         }
     }
 
-    // Detect when jumping is necessary.
-    // 1. No jumping if zoomed (or revved)
-    // 2. Jump if its necessary to do so based on z values
-    // 3. Jump if stuck (not getting closer) for more than stuck_time/2 (500ms)
-    if ((!(g_pLocalPlayer->holding_sniper_rifle && g_pLocalPlayer->bZoomed) && !(g_pLocalPlayer->bRevved || g_pLocalPlayer->bRevving) && (crouch || crumbs[0].vec.z - g_pLocalPlayer->v_Origin.z > 18) && last_jump.check(200)) || (last_jump.check(200) && inactivity.check(*stuck_time / 2)))
+    // Enhanced jump detection and handling
+    if ((!(g_pLocalPlayer->holding_sniper_rifle && g_pLocalPlayer->bZoomed) && 
+         !(g_pLocalPlayer->bRevved || g_pLocalPlayer->bRevving)))
     {
-        auto local = map->findClosestNavSquare(g_pLocalPlayer->v_Origin);
-        // Check if current area allows jumping
-        if (!local || !(local->m_attributeFlags & (NAV_MESH_NO_JUMP | NAV_MESH_STAIRS)))
+        bool should_jump = false;
+        float height_diff = crumbs[0].vec.z - g_pLocalPlayer->v_Origin.z;
+        
+        // Check if we need to jump
+        if (height_diff > 18.0f && height_diff <= PLAYER_JUMP_HEIGHT)
+        {
+            should_jump = true;
+        }
+        // Also jump if we're stuck and it might help
+        else if (inactivity.check(*stuck_time / 2))
+        {
+            auto local = map->findClosestNavSquare(g_pLocalPlayer->v_Origin);
+            if (!local || !(local->m_attributeFlags & (NAV_MESH_NO_JUMP | NAV_MESH_STAIRS)))
+            {
+                should_jump = true;
+            }
+        }
+        
+        if (should_jump && last_jump.check(200))
         {
             // Make it crouch until we land, but jump the first tick
             current_user_cmd->buttons |= crouch ? IN_DUCK : IN_JUMP;
@@ -734,7 +837,7 @@ static void followCrumbs()
             // Only flip to crouch state, not to jump state
             if (!crouch)
             {
-                crouch           = true;
+                crouch = true;
                 ticks_since_jump = 0;
             }
             ticks_since_jump++;
@@ -748,14 +851,6 @@ static void followCrumbs()
             }
         }
     }
-
-    /*if (inactivity.check(*stuck_time) || (inactivity.check(*unreachable_time) && !IsVectorVisible(g_pLocalPlayer->v_Origin, *crumb_vec + Vector(.0f, .0f, 41.5f), false, LOCAL_E, MASK_PLAYERSOLID)))
-    {
-        if (crumbs[0].navarea)
-            ignoremanager::addTime(last_area, *crumb, inactivity);
-        repath();
-        return;
-    }*/
 
     // Look at path
     if (look && !hacks::shared::aimbot::isAiming())
@@ -887,22 +982,33 @@ static void CreateMove()
 {
     if (!isReady())
         return;
+
+    // Basic validity checks
     if (CE_BAD(LOCAL_E) || !LOCAL_E->m_bAlivePlayer())
     {
         cancelPath();
         return;
     }
-    round_states round_state = g_pTeamRoundTimer->GetRoundState();
-    // Still in setuptime, if on fitting team, then do not path yet
-    // F you Pipeline
-    if (round_state == RT_STATE_SETUP && GetLevelName() != "plr_pipeline" && g_pLocalPlayer->team == TEAM_BLU)
+
+    // Get current map name and game state
+    std::string level_name = GetLevelName();
+    auto round_state = g_pTeamRoundTimer->GetRoundState();
+
+    // Handle setup time restrictions
+    bool in_setup = round_state == RT_STATE_SETUP;
+    bool is_blu = g_pLocalPlayer->team == TEAM_BLU;
+
+    // Check if we need to restrict movement during setup time
+    if (in_setup && is_blu && (level_name.compare(0, 3, "pl_") == 0 || level_name.compare(0, 3, "cp_") == 0))
     {
+        // Cancel any active pathing if we're in setup and shouldn't be moving
         if (navparser::NavEngine::isPathing())
             navparser::NavEngine::cancelPath();
         return;
     }
 
-    if (vischeck_runtime)
+    // Run normal navigation logic
+    if (*vischeck_runtime)
         vischeckPath();
     checkBlacklist();
 

@@ -17,6 +17,8 @@
 							<Option name="Up" value="1"/>
 							<Option name="Down" value="2"/>
 							<Option name="Inverse" value="3"/>
+							<Option name="Tronic" value="4"/>
+							<Option name="Mercedes" value="5"/>
 						</Select>
 					</LabeledObject>
 					<LabeledObject width="fill" label="Real Pitch">
@@ -29,9 +31,12 @@
 							<Option name="Random" value="5"/>
 							<Option name="Flip" value="6"/>
 							<Option name="Heck" value="7"/>
+							<Option name="Tronic" value="8"/>
+							<Option name="Mercedes" value="9"/>
 						</Select>
 					</LabeledObject>
 					<AutoVariable width="fill" target="antiaim.pitch.static" label="Custom" tooltip="Used when 'Real Pitch' is set to 'Custom'."/>
+					<AutoVariable width="fill" target="antiaim.ultrarand-pitch-speed" label="UR speed" tooltip="How many times per second the pitch changes" min="1" max="500" step="10"/>
 				</List>
 			</Box>
 			<Box padding="12 6 6 6" width="content" height="content" name="Yaw" y="120">
@@ -51,6 +56,8 @@
 							<Option name="Omega" value="10"/>
 							<Option name="Random" value="11"/>
 							<Option name="Random Clamped" value="12"/>
+							<Option name="TIMEKILLER" value="13"/>
+							<Option name="Mercedes" value="14"/>
 						</Select>
 					</LabeledObject>
 					<LabeledObject width="fill" label="Real Yaw">
@@ -68,10 +75,14 @@
 							<Option name="Omega" value="10"/>
 							<Option name="Random" value="11"/>
 							<Option name="Random Clamped" value="12"/>
+							<Option name="TIMEKILLER" value="13"/>
+							<Option name="Mercedes" value="14"/>
 						</Select>
 					</LabeledObject>
 					<AutoVariable width="fill" target="antiaim.yaw.fake.static" label="Custom Fake" tooltip="Used when 'Fake Yaw' is set to 'Custom'."/>
 					<AutoVariable width="fill" target="antiaim.yaw.real.static" label="Custom Real" tooltip="Used when 'Real Yaw' is set to 'Custom'."/>
+					<AutoVariable width="fill" target="antiaim.timekiller-spin-speed" label="TIMEKILLER" tooltip="Speed for TimeKiller spin (degrees per second)" min="360" max="7200" step="360"/>
+					<AutoVariable width="fill" target="antiaim.mercedes-speed" label="Mercedes" tooltip="Time for one full Mercedes logo rotation (seconds)" min="0.5" max="5.0" step="0.1"/>
 				</List>
 			</Box>
         </List>
