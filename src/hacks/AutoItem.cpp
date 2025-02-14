@@ -20,24 +20,12 @@
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include "common.hpp"
-#include "itemtypes.hpp"
-#include "reclasses/CTFInventoryManager.hpp"
-#include "hacks/SkinChanger.hpp"
 
 namespace hacks::tf2::autoitem
 {
 
 static settings::Boolean enable{ "auto-item.enable", "false" };
 static settings::Int interval{ "auto-item.time", "30000" };
-
-// Auto metal crafting settings
-static settings::Boolean auto_metal{ "auto-item.metal.enable", "false" };
-static settings::Boolean auto_metal_combine{ "auto-item.metal.combine-upgrades", "true" };
-static settings::Int auto_metal_min_weapons{ "auto-item.metal.min-weapons", "2" };
-static settings::Boolean auto_metal_keep_stranges{ "auto-item.metal.keep-stranges", "true" };
-static settings::Boolean auto_metal_keep_vintages{ "auto-item.metal.keep-vintages", "true" };
-static settings::Boolean auto_metal_keep_genuines{ "auto-item.metal.keep-genuines", "true" };
-static settings::String auto_metal_blacklist{ "auto-item.metal.blacklist", "" }; // Lista ID broni do zachowania
 
 // stock by default
 static settings::Boolean weapons{ "auto-item.weapons", "false" };
@@ -76,13 +64,6 @@ struct AchivementItem
 // A map that allows us to map item ids to achievement names and achievement ids
 static boost::unordered_flat_map<int /*item_id*/, AchivementItem> ach_items;
 static std::array<std::vector<std::string>, 3> craft_groups;
-
-// Forward declarations
-bool isWeaponSelected(int item_id);
-bool isItemBlacklisted(int item_id);
-bool isItemWeapon(re::CEconItemView *item);
-bool shouldKeepItem(re::CEconItemView *item);
-void handleMetalCrafting();
 
 bool checkAchMgr()
 {
@@ -373,8 +354,6 @@ static void CreateMove()
     // Only run if we are playing a valid class
     if (clazz != 0)
     {
-        handleMetalCrafting();
-        
         if (weapons)
         {
             getAndEquipWeapon(*primary, clazz, 0);
@@ -492,201 +471,6 @@ void rvarCallback(std::string after, int idx)
 {
     craft_groups[idx].clear();
     boost::split(craft_groups[idx], after, boost::is_any_of(";-"));
-}
-
-// Helper function to check if weapon is selected in loadout
-bool isWeaponSelected(int item_id)
-{
-    if (!weapons)
-        return false;
-        
-    std::vector<std::string> primary_ids, secondary_ids, melee_ids;
-    
-    boost::split(primary_ids, *primary, boost::is_any_of(",;/-"));
-    boost::split(secondary_ids, *secondary, boost::is_any_of(",;/-"));
-    boost::split(melee_ids, *melee, boost::is_any_of(",;/-"));
-    
-    auto check_ids = [item_id](const std::vector<std::string> &ids) {
-        for (const auto &id : ids)
-        {
-            try 
-            {
-                if (std::stoi(id) == item_id)
-                    return true;
-            }
-            catch (...) {}
-        }
-        return false;
-    };
-    
-    return check_ids(primary_ids) || check_ids(secondary_ids) || check_ids(melee_ids);
-}
-
-// Helper function to check if item is blacklisted
-bool isItemBlacklisted(int item_id)
-{
-    std::string blacklist = *auto_metal_blacklist;
-    if (blacklist.empty())
-        return false;
-        
-    std::vector<std::string> blacklist_ids;
-    boost::split(blacklist_ids, blacklist, boost::is_any_of(","));
-    
-    for (const auto &id : blacklist_ids)
-    {
-        try 
-        {
-            if (std::stoi(id) == item_id)
-                return true;
-        }
-        catch (...) {}
-    }
-    return false;
-}
-
-// Helper function to check if item is a weapon
-bool isItemWeapon(re::CEconItemView *item)
-{
-    if (!item)
-        return false;
-        
-    auto schema = hacks::tf2::skinchanger::GetItemSchema();
-    if (!schema)
-        return false;
-        
-    int defindex = item->GetDefinitionIndex();
-    return defindex >= 0;
-}
-
-// Helper function to check if item should be kept based on quality
-bool shouldKeepItem(re::CEconItemView *item)
-{
-    if (!item)
-        return false;
-        
-    // Check if item is blacklisted
-    if (isItemBlacklisted(item->GetDefinitionIndex()))
-        return true;
-        
-    // Check item quality
-    int quality = 0; // Default quality
-    
-    // Keep Strange items (quality 11)
-    if (*auto_metal_keep_stranges && quality == 11)
-        return true;
-        
-    // Keep Vintage items (quality 3)
-    if (*auto_metal_keep_vintages && quality == 3)
-        return true;
-        
-    // Keep Genuine items (quality 1)
-    if (*auto_metal_keep_genuines && quality == 1)
-        return true;
-        
-    return false;
-}
-
-// Function to handle metal crafting
-void handleMetalCrafting()
-{
-    if (!auto_metal)
-        return;
-        
-    Debug("AutoItem: Starting metal crafting process");
-        
-    auto invmng = re::CTFInventoryManager::GTFInventoryManager();
-    auto inv = invmng->GTFPlayerInventory();
-    
-    if (!inv)
-    {
-        Debug("AutoItem: Failed to get inventory");
-        return;
-    }
-        
-    std::vector<re::CEconItemView *> craftable_weapons;
-    
-    // Find craftable weapons that aren't selected in loadout and aren't special quality
-    for (int i = 0; i < inv->GetItemCount(); i++)
-    {
-        auto item = inv->GetItem(i);
-        if (!item)
-            continue;
-            
-        if (isItemWeapon(item) && !isWeaponSelected(item->GetDefinitionIndex()) && !shouldKeepItem(item))
-        {
-            craftable_weapons.push_back(item);
-            Debug("AutoItem: Found craftable weapon with ID %d", item->GetDefinitionIndex());
-        }
-    }
-    
-    Debug("AutoItem: Found %d craftable weapons", craftable_weapons.size());
-    
-    // If we have enough weapons, craft them into scrap
-    if (craftable_weapons.size() >= *auto_metal_min_weapons)
-    {
-        for (size_t i = 0; i < craftable_weapons.size() - 1; i += 2)
-        {
-            std::vector<int> craft_items = { (int)craftable_weapons[i]->UUID(), (int)craftable_weapons[i + 1]->UUID() };
-            Debug("AutoItem: Crafting weapons %d and %d into scrap", craftable_weapons[i]->GetDefinitionIndex(), craftable_weapons[i + 1]->GetDefinitionIndex());
-            Craft(craft_items); // Craft into scrap
-        }
-    }
-    else
-    {
-        Debug("AutoItem: Not enough weapons to craft (need %d, have %d)", *auto_metal_min_weapons, craftable_weapons.size());
-    }
-    
-    if (!auto_metal_combine)
-    {
-        Debug("AutoItem: Auto combine metal is disabled");
-        return;
-    }
-        
-    // Combine scrap into reclaimed
-    std::vector<re::CEconItemView *> scrap_metal;
-    for (int i = 0; i < inv->GetItemCount(); i++)
-    {
-        auto item = inv->GetItem(i);
-        if (!item)
-            continue;
-            
-        if (item->GetDefinitionIndex() == 5000) // Scrap Metal
-            scrap_metal.push_back(item);
-    }
-    
-    Debug("AutoItem: Found %d scrap metal", scrap_metal.size());
-    
-    // Craft scrap into reclaimed
-    for (size_t i = 0; i < scrap_metal.size() - 2; i += 3)
-    {
-        std::vector<int> craft_items = { (int)scrap_metal[i]->UUID(), (int)scrap_metal[i + 1]->UUID(), (int)scrap_metal[i + 2]->UUID() };
-        Debug("AutoItem: Crafting 3 scrap into reclaimed");
-        Craft(craft_items);
-    }
-    
-    // Combine reclaimed into refined
-    std::vector<re::CEconItemView *> reclaimed_metal;
-    for (int i = 0; i < inv->GetItemCount(); i++)
-    {
-        auto item = inv->GetItem(i);
-        if (!item)
-            continue;
-            
-        if (item->GetDefinitionIndex() == 5001) // Reclaimed Metal
-            reclaimed_metal.push_back(item);
-    }
-    
-    Debug("AutoItem: Found %d reclaimed metal", reclaimed_metal.size());
-    
-    // Craft reclaimed into refined
-    for (size_t i = 0; i < reclaimed_metal.size() - 2; i += 3)
-    {
-        std::vector<int> craft_items = { (int)reclaimed_metal[i]->UUID(), (int)reclaimed_metal[i + 1]->UUID(), (int)reclaimed_metal[i + 2]->UUID() };
-        Debug("AutoItem: Crafting 3 reclaimed into refined");
-        Craft(craft_items);
-    }
-    
-    Debug("AutoItem: Metal crafting process completed");
 }
 
 static InitRoutine init(

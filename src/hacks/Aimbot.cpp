@@ -1553,31 +1553,13 @@ bool Aim(AimbotTarget_t target)
     {
         QAngle view;
         g_IEngine->GetViewAngles(view);
+        
+        // Calculate angle delta
         Vector delta = angles - Vector(view.x, view.y, view.z);
-        
         fClampAngle(delta);
-    
-        float delta_magnitude = sqrt(delta.x * delta.x + delta.y * delta.y);
-        float base_factor = 1.0f / (slow_aim * 2.5f);
-        float factor = base_factor;
         
-        // Fast start, slow end
-        if (delta_magnitude > 30.0f)
-        {
-            factor = std::min(1.0f, base_factor * 2.0f);
-        }
-        else if (delta_magnitude > 10.0f)
-        {
-            factor = std::min(1.0f, base_factor * 1.5f);
-        }
-        else
-        {
-            factor = std::min(1.0f, base_factor * (delta_magnitude / 10.0f));
-        }
+        float factor = std::min(1.0f, 1.0f / (slow_aim * 2.5f));
         angles = Vector(view.x, view.y, view.z) + delta * factor;
-        
-        // Update can_shoot status for autoshoot
-        slow_can_shoot = (delta_magnitude < 2.0f); // Allow shooting when very close to target
     }
 
 #if ENABLE_VISUALS
@@ -1605,66 +1587,53 @@ Vector CalculateAimAngles(const Vector& eyePosition, const Vector& targetPositio
 {
     Vector delta = targetPosition - eyePosition;
     
-    if (g_pLocalPlayer->weapon_mode == weapon_hitscan)
+    // Apply micro-adjustments for better head hitbox targeting
+    if (g_pLocalPlayer->weapon_mode == weapon_hitscan && 
+        g_pLocalPlayer->holding_sniper_rifle)
     {
+        float dist = targetPosition.DistTo(eyePosition);
+        
+        // Dynamic compensation based on distance
+        if (dist > 1000.0f) 
+        {
+            delta.z += 0.5f + (dist - 1000.0f) * 0.0001f; // Progressive vertical adjustment
+        }
+        
+        // Micro-adjustments for moving targets
         if (auto target = CurrentTarget())
         {
             Vector velocity;
             velocity::EstimateAbsVelocity(RAW_ENT(target), velocity);
             float speed = velocity.Length2D();
-            float latency = g_IEngine->GetNetChannelInfo() ? 
-                (g_IEngine->GetNetChannelInfo()->GetLatency(FLOW_OUTGOING) + 
-                 g_IEngine->GetNetChannelInfo()->GetLatency(FLOW_INCOMING)) * 1000.0f : 0.0f;
-
-            if (speed > 0.1f && latency > 0.0f)
+            
+            if (speed > 50.0f)
             {
-                float lead_time = latency / 1000.0f;
-                float dist = targetPosition.DistTo(eyePosition);
-                float dist_scale = std::min(1.0f, dist / 2000.0f);
-                Vector lead = velocity * (lead_time * dist_scale);
-                
-                if (latency > 80.0f)
-                {
-                    float ping_comp = (latency - 80.0f) / 920.0f;
-                    lead *= (1.0f + ping_comp);
-                }
-                
-                delta += lead;
-            }
-
-            if (g_pLocalPlayer->holding_sniper_rifle)
-            {
-                float dist = targetPosition.DistTo(eyePosition);
-                
-                if (dist > 1000.0f)
-                {
-                    float vertical_comp = std::min(1.0f, (dist - 1000.0f) / 2000.0f);
-                    delta.z += 0.3f * vertical_comp * (1.0f + latency / 200.0f);
-                }
-                
-                if (g_pLocalPlayer->bZoomed && speed > 50.0f)
-                {
-                    Vector norm_vel = velocity;
-                    norm_vel.NormalizeInPlace();
-                    float move_comp = std::min(1.0f, speed / 300.0f);
-                    delta += norm_vel * (move_comp * 2.0f);
-                }
+                // Lead the target slightly based on movement
+                Vector normalized = velocity;
+                normalized.NormalizeInPlace();
+                delta += normalized * (speed * 0.001f);
             }
         }
     }
 
     float hyp = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    
     Vector angles;
     angles.x = (float)(RAD2DEG(atan2(-delta.z, hyp)));
     angles.y = (float)(RAD2DEG(atan2(delta.y, delta.x)));
     angles.z = 0.0f;
 
+    // Enhanced angle normalization
     fClampAngle(angles);
     
+    // Apply micro-corrections for better accuracy
     if (g_pLocalPlayer->weapon_mode == weapon_hitscan)
     {
-        angles.x = std::round(angles.x * 100.0f) / 100.0f;
-        angles.y = std::round(angles.y * 100.0f) / 100.0f;
+        // Fine adjustment for vertical angle
+        angles.x = std::floor(angles.x * 100.0f) / 100.0f;
+        
+        // Fine adjustment for horizontal angle
+        angles.y = std::floor(angles.y * 100.0f) / 100.0f;
     }
     
     return angles;
