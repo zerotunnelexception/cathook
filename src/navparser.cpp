@@ -211,35 +211,45 @@ navPoints determinePoints(CNavArea *current, CNavArea *next)
     // If safepathing is enabled, adjust points to stay more centered and avoid corners
     if (safepathing)
     {
-        // Move points more towards the center of the areas
-        Vector to_next = (next_center - area_center);
-        to_next.z = 0.0f;
-        to_next.NormalizeInPlace();
-
         // Calculate center point as a weighted average between area centers
-        // Use a 60/40 split to favor the current area more
-        center_point = area_center + (next_center - area_center) * 0.4f;
+        // Use a 70/30 split to favor the current area more for smoother transitions
+        center_point = area_center * 0.7f + next_center * 0.3f;
         
-        // Add extra safety margin near corners
-        float corner_margin = PLAYER_WIDTH * 0.75f;
+        // Add extra safety margin from walls and corners
+        float corner_margin = PLAYER_WIDTH * 1.25f;
+        float wall_margin = PLAYER_WIDTH * 0.75f;
         
-        // Check if we're near a corner by comparing distances to area edges
-        bool near_corner = false;
-        Vector area_mins = current->m_nwCorner; // Northwest corner
-        Vector area_maxs = current->m_seCorner; // Southeast corner
+        // Check distances to area edges
+        Vector area_mins = current->m_nwCorner;
+        Vector area_maxs = current->m_seCorner;
         
-        if (center_point.x - area_mins.x < corner_margin || 
-            area_maxs.x - center_point.x < corner_margin ||
-            center_point.y - area_mins.y < corner_margin || 
-            area_maxs.y - center_point.y < corner_margin)
+        bool near_wall_x = (center_point.x - area_mins.x < wall_margin || 
+                           area_maxs.x - center_point.x < wall_margin);
+        bool near_wall_y = (center_point.y - area_mins.y < wall_margin || 
+                           area_maxs.y - center_point.y < wall_margin);
+        
+        // Move away from walls
+        if (near_wall_x)
         {
-            near_corner = true;
+            float center_x = (area_mins.x + area_maxs.x) * 0.5f;
+            center_point.x = center_point.x + (center_x - center_point.x) * 0.5f;
+        }
+        if (near_wall_y)
+        {
+            float center_y = (area_mins.y + area_maxs.y) * 0.5f;
+            center_point.y = center_point.y + (center_y - center_point.y) * 0.5f;
         }
         
-        // If near corner, move point more towards center
+        // Check if we're near a corner
+        bool near_corner = (near_wall_x && near_wall_y);
+        
+        // If near corner, move more aggressively towards center
         if (near_corner)
         {
-            center_point = center_point + (area_center - center_point).Normalized() * corner_margin;
+            Vector area_center_2d((area_mins.x + area_maxs.x) * 0.5f,
+                                (area_mins.y + area_maxs.y) * 0.5f,
+                                center_point.z);
+            center_point = center_point + (area_center_2d - center_point).Normalized() * corner_margin;
         }
         
         // Ensure the point is within the current area
@@ -322,6 +332,24 @@ public:
             if (nojumppaths && height_diff > 18.0f)
                 continue;
 
+            // Add cost multiplier for paths requiring jumps or height changes
+            float cost = connection.area->m_center.DistTo(area.m_center);
+            if (height_diff > 18.0f)
+            {
+                // Significant height change - increase cost
+                cost *= 1.5f;
+            }
+            if (connection.area->m_attributeFlags & NAV_MESH_JUMP)
+            {
+                // Jump path - increase cost
+                cost *= 2.0f;
+            }
+            if (connection.area->m_attributeFlags & NAV_MESH_CROUCH)
+            {
+                // Crouch path - increase cost
+                cost *= 1.75f;
+            }
+
             points.current.z += PLAYER_JUMP_HEIGHT;
             points.center.z += PLAYER_JUMP_HEIGHT;
             points.next.z += PLAYER_JUMP_HEIGHT;
@@ -332,7 +360,6 @@ public:
             {
                 if (cached->second.vischeck_state)
                 {
-                    float cost = connection.area->m_center.DistTo(area.m_center);
                     adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
                 }
             }
@@ -343,7 +370,6 @@ public:
                 {
                     vischeck_cache[key] = { TICKCOUNT_TIMESTAMP(60), true };
 
-                    float cost = points.next.DistTo(points.current);
                     adjacent->push_back(micropather::StateCost{ reinterpret_cast<void *>(connection.area), cost });
                 }
                 else

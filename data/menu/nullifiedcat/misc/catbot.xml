@@ -3,7 +3,14 @@
         <List width="200">
             <AutoVariable width="fill" target="autojoin.auto-queue" label="Auto queue"/>
             <AutoVariable width="fill" target="autojoin.auto-requeue" label="Auto requeue"/>
-            <AutoVariable width="fill" target="autoqueue.mode" label="Autoqueue mode" min="0" max="12"/>
+            <LabeledObject width="fill" label="Autoqueue mode">
+                <Select target="autoqueue.mode">
+                    <Option name="Casual" value="7"/>
+                    <Option name="Competitive" value="2"/>
+                    <Option name="MvM Boot Camp" value="1001"/>
+                    <Option name="MvM Mann Up" value="1002"/>
+                </Select>
+            </LabeledObject>
             <AutoVariable width="fill" target="hack.requeue-on-kick" label="Requeue on kick"/>
             <AutoVariable width="fill" target="autotaunt.enable" label="Autotaunt enabled"/>
             <LabeledObject width="fill" label="Autotaunt weapon">

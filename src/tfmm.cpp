@@ -13,7 +13,25 @@
 static settings::Boolean auto_party{ "player-tools.set-party-state", "true" };
 settings::Int queue{ "autoqueue.mode", "7" };
 
+// Queue mode definitions
+#define QUEUE_CASUAL 7
+#define QUEUE_BOOTCAMP 1001
+#define QUEUE_MANNUP 1002
+#define QUEUE_COMPETITIVE 2 // Competitive matchmaking queue
+
 CatCommand cmd_queue_start("mm_queue_casual", "Start casual queue", []() { tfmm::startQueue(); });
+CatCommand cmd_queue_bootcamp("mm_queue_bootcamp", "Start Boot Camp queue", []() { 
+    queue = QUEUE_BOOTCAMP;
+    tfmm::startQueue(); 
+});
+CatCommand cmd_queue_mannup("mm_queue_mannup", "Start Mann Up queue", []() { 
+    queue = QUEUE_MANNUP;
+    tfmm::startQueue(); 
+});
+CatCommand cmd_queue_competitive("mm_queue_competitive", "Start Competitive queue", []() {
+    queue = QUEUE_COMPETITIVE;
+    tfmm::startQueue();
+});
 CatCommand queue_party("mm_queue_party", "Queue for Party", []() {
     re::CTFPartyClient *client = re::CTFPartyClient::GTFPartyClient();
     client->RequestQueueForStandby();
@@ -123,10 +141,16 @@ void startQueue()
     re::CTFPartyClient *client = re::CTFPartyClient::GTFPartyClient();
     if (client)
     {
-        if (*queue == 7)
+        if (*queue == QUEUE_CASUAL)
             client->LoadSavedCasualCriteria();
-        client->RequestQueueForMatch((int) queue);
-        // client->RequestQueueForStandby();
+        else if (*queue == QUEUE_BOOTCAMP)
+            client->RequestQueueForMatch(QUEUE_BOOTCAMP); // MvM Boot Camp
+        else if (*queue == QUEUE_MANNUP)
+            client->RequestQueueForMatch(QUEUE_MANNUP); // MvM Mann Up
+        else if (*queue == QUEUE_COMPETITIVE)
+            client->RequestQueueForMatch(QUEUE_COMPETITIVE); // Competitive matchmaking queue
+        else
+            client->RequestQueueForMatch((int) queue);
         queuecount++;
     }
     else

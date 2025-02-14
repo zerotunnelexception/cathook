@@ -104,6 +104,12 @@ bool StolenName()
 // Used to reconnect after changing name
 static bool has_changed = false;
 
+void SetSteamName(const std::string& new_name) {
+    if (g_ISteamFriends) {
+        g_ISteamFriends->SetPersonaName(new_name.c_str());
+    }
+}
+
 std::string GetNamestealName(CSteamID steam_id)
 {
     if (steam_id != g_ISteamUser->GetSteamID())
@@ -112,12 +118,10 @@ std::string GetNamestealName(CSteamID steam_id)
     // Check User settings if namesteal is allowed
     if (namesteal)
     {
-
         // We dont want to steal names while not in-game as there are no targets
         // to steal from. We want to be on a team as well to get teammates names
         if (g_IEngine->IsInGame() && g_pLocalPlayer->team)
         {
-
             std::string previous_name = stolen_name;
             // Check if we have a username to steal, func automaticly steals a
             // name in it.
@@ -125,12 +129,18 @@ std::string GetNamestealName(CSteamID steam_id)
 
             has_changed = stolen_name != previous_name;
 
-            if (stolen_name != "")
-                // Return the name that has changed from the func above
-                return format(stolen_name, glitchy_newlines ? "\n\n\n" : "\u2063");
+            if (stolen_name != "") {
+                // Set the Steam name permanently
+                std::string formatted_name = format(stolen_name, glitchy_newlines ? "\n\n\n" : "\u2063");
+                SetSteamName(formatted_name);
+                return formatted_name;
+            }
         }
-        else if (stolen_name != "")
-            return format(stolen_name, glitchy_newlines ? "\n\n\n" : "\u2063");
+        else if (stolen_name != "") {
+            std::string formatted_name = format(stolen_name, glitchy_newlines ? "\n\n\n" : "\u2063");
+            SetSteamName(formatted_name);
+            return formatted_name;
+        }
     }
 
 #if ENABLE_IPC
@@ -141,6 +151,7 @@ std::string GetNamestealName(CSteamID steam_id)
         {
             ReplaceString(namestr, "%%", std::to_string(ipc::peer->client_id));
             ReplaceSpecials(namestr);
+            SetSteamName(namestr);
             return namestr;
         }
     }
@@ -150,14 +161,14 @@ std::string GetNamestealName(CSteamID steam_id)
     {
         auto new_name = force_name.toString();
         ReplaceSpecials(new_name);
-
+        SetSteamName(new_name);
         return new_name;
     }
     if (name_forced.size() > 1)
     {
         auto new_name = name_forced;
         ReplaceSpecials(new_name);
-
+        SetSteamName(new_name);
         return new_name;
     }
     return std::string();
@@ -185,67 +196,29 @@ static InitRoutine init(
                 if (new_val != 0)
                 {
                     std::string new_name = GetNamestealName(g_ISteamUser->GetSteamID());
-                    if (CE_BAD(LOCAL_E) || new_name.empty() || !strcmp(LOCAL_E->player_info->name, new_name.c_str()))
+                    if (new_name.empty())
                         return;
                     netvar_name = std::move(new_name);
-                    NET_SetConVar setname("name", netvar_name.c_str());
-                    INetChannel *ch = (INetChannel *) g_IEngine->GetNetChannelInfo();
-                    if (ch)
-                    {
-                        setname.SetNetChannel(ch);
-                        setname.SetReliable(false);
-                        ch->SendNetMsg(setname, false);
-                    }
                 }
             });
     });
+
 static Timer set_name{};
 static Timer reconnect{};
 static void cm()
 {
     if (!namesteal)
         return;
-    // Reconnect after name change
-    if (has_changed && reconnect.test_and_set(120000) && namesteal_reconnect)
-    {
-        has_changed = false;
-        // Only passive should reconnect
-        if (*namesteal == 1)
-        {
-            static std::string previous_server = "";
-            static int retry_count             = 0;
-            if (previous_server != ((INetChannel *) g_IEngine->GetNetChannelInfo())->GetAddress())
-            {
-                previous_server = ((INetChannel *) g_IEngine->GetNetChannelInfo())->GetAddress();
-                retry_count     = 0;
-            }
-            retry_count++;
-            // Retry only up to 3 times, else you get an ad-hoc error
-            if (retry_count <= 3)
-                g_IEngine->ClientCmd_Unrestricted("retry");
-        }
-    }
+    
     if (!set_name.test_and_set(30000))
         return;
+        
     std::string new_name = GetNamestealName(g_ISteamUser->GetSteamID());
-    if (CE_BAD(LOCAL_E) || new_name.empty())
+    if (new_name.empty())
         return;
-    // Didn't change name - update timer a bit
-    if (!strcmp(LOCAL_E->player_info->name, new_name.c_str()))
-    {
-        set_name.last -= std::chrono::seconds(170);
-        return;
-    }
+        
     has_changed = true;
     netvar_name = std::move(new_name);
-    NET_SetConVar setname("name", netvar_name.c_str());
-    INetChannel *ch = (INetChannel *) g_IEngine->GetNetChannelInfo();
-    if (ch)
-    {
-        setname.SetNetChannel(ch);
-        setname.SetReliable(false);
-        ch->SendNetMsg(setname, false);
-    }
 }
 
 static InitRoutine runinit([]() { EC::Register(EC::CreateMove, cm, "cm_namesteal", EC::late); });

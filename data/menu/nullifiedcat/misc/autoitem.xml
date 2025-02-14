@@ -1,12 +1,33 @@
-<Tab name="Auto Item" padding="4 4 4 4">
-    <Box name="Auto item" width="content" height="content" padding="12 6 6 6">
+<?xml version="1.0" encoding="UTF-8"?>
+<Tab name="Auto item" padding="4 4 4 4">
+    <Box padding="12 6 6 6" width="content" height="content" name="Auto item">
         <List width="200">
             <AutoVariable width="fill" target="auto-item.enable" label="Enable auto item" tooltip="Allows you to automatically rent and craft items, very useful for bots."/>
-            <AutoVariable width="fill" target="auto-item.time" label="Equip timer" tooltip="Time between auto item attempts in milliseconds."/>
+            <AutoVariable width="fill" target="auto-item.time" label="Check interval" tooltip="Time between auto item attempts in milliseconds."/>
+            <AutoVariable width="fill" target="auto-item.debug" label="Debug" tooltip="Enable debug output"/>
+        </List>
+    </Box>
+    <Box padding="12 6 6 6" x="215" width="content" height="content" name="Auto metal crafting">
+        <List width="200">
+            <AutoVariable width="fill" target="auto-item.metal.enable" label="Enable auto metal" tooltip="Automatically craft metal from unused weapons"/>
+            <AutoVariable width="fill" target="auto-item.metal.combine-upgrades" label="Auto combine metal" tooltip="Automatically combine scrap into reclaimed and reclaimed into refined"/>
+            <AutoVariable width="fill" target="auto-item.metal.min-weapons" label="Min weapons to craft" tooltip="Minimum number of weapons needed to start crafting metal"/>
+            <AutoVariable width="fill" target="auto-item.metal.keep-stranges" label="Keep Strange items" tooltip="Don't craft Strange quality items into metal"/>
+            <AutoVariable width="fill" target="auto-item.metal.keep-vintages" label="Keep Vintage items" tooltip="Don't craft Vintage quality items into metal"/>
+            <AutoVariable width="fill" target="auto-item.metal.keep-genuines" label="Keep Genuine items" tooltip="Don't craft Genuine quality items into metal"/>
+            <AutoVariable width="fill" target="auto-item.metal.blacklist" label="Item blacklist" tooltip="Comma-separated list of item IDs to never craft into metal"/>
+        </List>
+    </Box>
+    <Box padding="12 6 6 6" y="85" width="content" height="content" name="Weapons">
+        <List width="200">
             <AutoVariable width="fill" target="auto-item.weapons" label="Weapons" tooltip="Enable automatically renting/crafting weapons."/>
             <AutoVariable width="fill" target="auto-item.weapons.primary" label="Primary" tooltip="Primary weapon to rent/craft, see cathook.club/wiki/How-to-Autoitem for formatting information. -1 is stock."/>
             <AutoVariable width="fill" target="auto-item.weapons.secondary" label="Secondary/Cloak" tooltip="Secondary/Cloak weapon to rent/craft, see cathook.club/wiki/How-to-Autoitem for formatting information. -1 is stock."/>
             <AutoVariable width="fill" target="auto-item.weapons.melee" label="Melee" tooltip="Melee weapon to rent/craft, see cathook.club/wiki/How-to-Autoitem for formatting information. -1 is stock."/>
+        </List>
+    </Box>
+    <Box padding="12 6 6 6" x="215" y="220" width="content" height="content" name="Hats">
+        <List width="200">
             <AutoVariable width="fill" target="auto-item.hats" label="Hats" tooltip="Enable automatically equipping hats, if it's an achievement hat it will be automatically obtained, else you must have the item already."/>
             <AutoVariable width="fill" target="auto-item.hats.1" label="Hat 1" tooltip="First hat/cosmetic to equip, see cathook.club/wiki/How-to-Autoitem"/>
             <AutoVariable width="fill" target="auto-item.hats.2" label="Hat 2" tooltip="Second hat/cosmetic to equip, see cathook.club/wiki/How-to-Autoitem"/>
