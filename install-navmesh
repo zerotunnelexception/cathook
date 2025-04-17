@@ -5,7 +5,7 @@ detect_distro() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         case "$ID" in
-            "garuda")
+            "garuda"|"endeavouros")
                 echo "arch"  # Garuda is Arch-based
                 ;;
             "linuxmint"|"ubuntu")
@@ -97,7 +97,6 @@ wget --progress=bar:force:noscroll https://cdn.cathook.org/goyslop/catbot-navmes
 if [ $? -ne 0 ]; then
     print_colored "red" "Failed to download catbot-navmesh.zip"
     rm -rf "$temp_dir"
-    exit 1
 fi
 
 # Find TF2 directory
