@@ -7,3 +7,4 @@ set -e
 #
 
 ./scripts/updater false true true
+./install-data
