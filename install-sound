@@ -5,7 +5,7 @@ detect_distro() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         case "$ID" in
-            "garuda")
+            "garuda"|"endeavouros")
                 echo "arch"  # Garuda is Arch-based
                 ;;
             "linuxmint"|"ubuntu")
@@ -55,40 +55,17 @@ case $DISTRO in
     "arch"|"manjaro")
         case $AUDIO_SYSTEM in
             "pipewire")
-                sudo pacman -S --needed --noconfirm \
-                    lib32-alsa-plugins \
-                    lib32-pipewire-jack \
-                    pipewire \
-                    pipewire-pulse \
-                    apulse \
-                    lib32-pipewire \
-                    lib32-pulseaudio
+                sudo pacman -S --needed --noconfirm lib32-alsa-plugins lib32-pipewire-jack pipewire pipewire-pulse lib32-pipewire lib32-pulseaudio
                 ;;
             "pulseaudio")
-                sudo pacman -S --needed --noconfirm \
-                    lib32-alsa-plugins \
-                    pulseaudio \
-                    lib32-pulseaudio \
-                    apulse
+                sudo pacman -S --needed --noconfirm lib32-alsa-plugins pulseaudio lib32-pulseaudio
                 ;;
             "alsa")
-                sudo pacman -S --needed --noconfirm \
-                    lib32-alsa-plugins \
-                    alsa-utils \
-                    apulse
+                sudo pacman -S --needed --noconfirm lib32-alsa-plugins alsa-utils apulse
                 ;;
             *)
                 echo "Unknown audio system. Installing all dependencies..."
-                sudo pacman -S --needed --noconfirm \
-                    lib32-alsa-plugins \
-                    lib32-pipewire-jack \
-                    pipewire \
-                    pipewire-pulse \
-                    apulse \
-                    lib32-pipewire \
-                    lib32-pulseaudio \
-                    pulseaudio \
-                    alsa-utils
+                sudo pacman -S --needed --noconfirm lib32-alsa-plugins lib32-pipewire-jack pipewire pipewire-pulse lib32-pipewire lib32-pulseaudio pulseaudio alsa-utils
                 ;;
         esac
         ;;
@@ -97,12 +74,7 @@ case $DISTRO in
         sudo apt update
         case $AUDIO_SYSTEM in
             "pipewire")
-                sudo apt install -y \
-                    pipewire \
-                    pipewire-pulse \
-                    libpipewire-0.3-0:i386 \
-                    libasound2:i386 \
-                    libasound2-plugins:i386
+                sudo apt install -y pipewire  pipewire-pulse libpipewire-0.3-0:i386 libasound2:i386 libasound2-plugins:i386
                 ;;
             "pulseaudio")
                 sudo apt install -y \
