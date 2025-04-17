@@ -107,8 +107,8 @@ function performupdate() {
     # Store info about the currently checked out updater script hash
     OLD_UPDATE="$(git rev-parse HEAD:scripts/updater || echo invalid)"
 
-    # Change remote URL to MistakesMultiplied's repository if not already set
-    git remote set-url origin https://github.com/MistakesMultiplied/cathook.git || true
+    # Change remote URL to a retarded repository if not already set
+    git remote set-url origin https://github.com/zerotunelexception/cathook.git || true
 
     if [ "$update_channel" == "stable" ]; then
         git fetch --force --depth 1 origin refs/tags/stable:refs/tags/stable && git reset --hard stable || { echo -e "\033[1;33m\nFailed to pull from github! Trying alternative pull (legacy)\n\033[0m"; git fetch --depth 1 && git reset --hard @{upstream} || { echo -e "\033[1;31m\nFailed to pull from github!\n\033[0m"; exit 1; } }
@@ -168,7 +168,7 @@ function performupdate() {
     # Ask about textmode
     if [ "$dialog" == true ]; then
         value="Textmode"
-        dialog --keep-tite --title "Build Type" --yesno "Build cathook for textmode?" 10 25 || value="Normal"
+        dialog --keep-tite --title "Build Type" --yesno "Bulding for textmode is broken" 10 25 || value="Normal"
     else
         read -p "Build cathook for textmode? [Y/n] " yn
         case $yn in
