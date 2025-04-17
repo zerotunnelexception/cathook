@@ -45,8 +45,8 @@ echo
 # Run install-sound
 run_script "install-sound" "audio dependencies installation"
 
-# Run install-tf2
-run_script "install-tf2" "TF2 x32 installation"
+# Run install-tf2 (deprecated since Feb 18, not providing mirror for this)
+# run_script "install-tf2" "TF2 x32 installation"
 
 # Run navmesh-install
 run_script "install-navmesh" "navmesh installation"
