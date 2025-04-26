@@ -1,5 +1,8 @@
 #!/bin/bash
 
+sudo pacman -Syyu yay --noconfirm
+yay -S lib32-gperftools --noconfirm
+
 # Print colored text
 print_colored() {
     local color=$1
